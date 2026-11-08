@@ -20,19 +20,25 @@ const seedPosts = [
 
 export function openDatabase(filePath, options = {}) {
   mkdirSync(dirname(filePath), { recursive: true });
-  const db = new DatabaseSync(filePath);
-  db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
-  migrateDatabase(db, { logger: options.logger });
-  if (options.seed !== false) {
-  const insert = db.prepare(`INSERT OR IGNORE INTO posts
-    (id,user_id,author_name,type,title,body,species_id,behavior,place_name,visibility,image_url,created_at,updated_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`);
-  for (const post of seedPosts) {
-    insert.run(post.id, post.userId, post.authorName, post.type, post.title, post.body, post.speciesId,
-      post.behavior, post.placeName, post.visibility, post.imageUrl, post.createdAt, post.createdAt);
+  const databaseFactory = options.databaseFactory || (path => new DatabaseSync(path));
+  const db = databaseFactory(filePath);
+  try {
+    db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
+    (options.migrateImpl || migrateDatabase)(db, { logger: options.logger, migrationList: options.migrationList });
+    if (options.seed !== false) {
+      const insert = db.prepare(`INSERT OR IGNORE INTO posts
+        (id,user_id,author_name,type,title,body,species_id,behavior,place_name,visibility,image_url,created_at,updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+      for (const post of seedPosts) {
+        insert.run(post.id, post.userId, post.authorName, post.type, post.title, post.body, post.speciesId,
+          post.behavior, post.placeName, post.visibility, post.imageUrl, post.createdAt, post.createdAt);
+      }
+    }
+    return db;
+  } catch (error) {
+    try { db.close(); } catch { /* preserve the initialization error */ }
+    throw error;
   }
-  }
-  return db;
 }
 
 export function postRows(db, where = '', params = [], viewerId = 'demo-user') {

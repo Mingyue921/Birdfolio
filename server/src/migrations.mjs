@@ -85,12 +85,12 @@ const migrations = [
   }
 ];
 
-export function migrateDatabase(db, { logger } = {}) {
+export function migrateDatabase(db, { logger, migrationList = migrations } = {}) {
   db.exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
     version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL
   )`);
   const applied = new Set(db.prepare('SELECT version FROM schema_migrations').all().map(row => Number(row.version)));
-  for (const migration of migrations) {
+  for (const migration of [...migrationList].sort((left, right) => left.version - right.version)) {
     if (applied.has(migration.version)) continue;
     db.exec('BEGIN IMMEDIATE');
     try {
@@ -100,7 +100,7 @@ export function migrateDatabase(db, { logger } = {}) {
       db.exec('COMMIT');
       logger?.info('database.migration_applied', { version: migration.version, name: migration.name });
     } catch (error) {
-      db.exec('ROLLBACK');
+      try { db.exec('ROLLBACK'); } catch { /* preserve the migration error */ }
       throw error;
     }
   }

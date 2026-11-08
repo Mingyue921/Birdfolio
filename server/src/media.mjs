@@ -130,5 +130,7 @@ export function getMedia(db, dataDir, mediaId, userId, { allowExpired = false } 
 }
 
 export function removeMediaFile(row) {
-  if (row?.file_path && existsSync(row.file_path)) { try { unlinkSync(row.file_path); } catch { /* best effort */ } }
+  if (!row?.file_path || !existsSync(row.file_path)) return true;
+  try { unlinkSync(row.file_path); return true; }
+  catch { return false; }
 }

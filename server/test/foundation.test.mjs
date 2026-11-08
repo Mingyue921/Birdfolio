@@ -6,10 +6,23 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { openDatabase } from '../src/database.mjs';
 import { cleanupExpiredMedia } from '../src/media-cleanup.mjs';
+import { migrateDatabase } from '../src/migrations.mjs';
 
 const silentLogger = { info() {}, warn() {}, error() {} };
 
-test('numbered migrations upgrade a legacy database once and preserve data', () => {
+test('empty database applies numbered migrations in order and reopening is idempotent', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'birdfolio-empty-migration-'));
+  const path = join(dir, 'empty.db');
+  const db = openDatabase(path, { seed: false, logger: silentLogger });
+  assert.deepEqual(db.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map(row => row.version), [1, 2]);
+  db.close();
+  const reopened = openDatabase(path, { seed: false, logger: silentLogger });
+  assert.deepEqual(reopened.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map(row => row.version), [1, 2]);
+  reopened.close();
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('numbered migrations upgrade a legacy database and preserve data', () => {
   const dir = mkdtempSync(join(tmpdir(), 'birdfolio-migration-'));
   const path = join(dir, 'legacy.db');
   const legacy = new DatabaseSync(path);
@@ -39,6 +52,25 @@ test('numbered migrations upgrade a legacy database once and preserve data', () 
   rmSync(dir, { recursive: true, force: true });
 });
 
+test('failed migration rolls back changes and does not advance schema version', () => {
+  const db = new DatabaseSync(':memory:');
+  const migrationList = [
+    { version: 1, name: 'first', up(database) { database.exec('CREATE TABLE first_table(id INTEGER)'); } },
+    { version: 2, name: 'failing', up(database) { database.exec('CREATE TABLE rolled_back(id INTEGER)'); throw new Error('EXPECTED_MIGRATION_FAILURE'); } }
+  ];
+  assert.throws(() => migrateDatabase(db, { migrationList, logger: silentLogger }), /EXPECTED_MIGRATION_FAILURE/);
+  assert.deepEqual(db.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map(row => row.version), [1]);
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table' AND name='rolled_back'").get().count, 0);
+  db.close();
+});
+
+test('database initialization failure closes the database without masking the error', () => {
+  let closes = 0;
+  const fakeDb = { exec() { throw new Error('PRAGMA_FAILED'); }, close() { closes += 1; throw new Error('CLOSE_FAILED'); } };
+  assert.throws(() => openDatabase(join(tmpdir(), 'never-created.db'), { databaseFactory: () => fakeDb }), /PRAGMA_FAILED/);
+  assert.equal(closes, 1);
+});
+
 test('expired media cleanup removes only unreferenced files', () => {
   const dir = mkdtempSync(join(tmpdir(), 'birdfolio-cleanup-'));
   const db = openDatabase(join(dir, 'cleanup.db'), { seed: false, logger: silentLogger });
@@ -53,7 +85,7 @@ test('expired media cleanup removes only unreferenced files', () => {
   db.prepare(`INSERT INTO posts(id,user_id,author_name,type,title,body,species_id,behavior,place_name,visibility,image_url,created_at,updated_at)
     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`).run('post-media', 'user', 'user', 'photo', 'title', 'body', '', '', '', '所有人', '/media/media-referenced.png', 'now', 'now');
 
-  assert.deepEqual(cleanupExpiredMedia(db, { now, logger: silentLogger }), { scanned: 1, removed: 1 });
+  assert.deepEqual(cleanupExpiredMedia(db, { now, logger: silentLogger }), { scanned: 3, removed: 1, skipped: 2 });
   assert.equal(existsSync(expiredPath), false);
   assert.equal(existsSync(referencedPath), true);
   assert.equal(existsSync(activePath), true);

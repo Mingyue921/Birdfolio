@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, extname, join } from 'node:path';
 import { bearerToken } from '../auth.mjs';
+import { corsHeaders } from '../http.mjs';
 import { decodeDataUrl, MAX_MEDIA_BYTES, saveMedia } from '../media.mjs';
 
 export async function handleMediaRoutes(ctx) {
@@ -26,7 +27,7 @@ export async function handleMediaRoutes(ctx) {
     if (!row || row.deleted_at || row.expires_at <= Date.now()) { json(res, 404, { error: 'NOT_FOUND' }, env, rid); return true; }
     const publicPost = db.prepare("SELECT 1 AS visible FROM posts WHERE image_url=? AND visibility='所有人' LIMIT 1").get(`/media/${fileName}`);
     if ((!user || user.id !== row.user_id) && !publicPost) { json(res, 401, { error: 'AUTH_REQUIRED' }, env, rid); return true; }
-    res.writeHead(200, { 'content-type': row.mime_type, 'cache-control': publicPost ? 'public, max-age=300' : 'private, max-age=300' }); res.end(readFileSync(path)); return true;
+    res.writeHead(200, { ...corsHeaders(env), 'content-type': row.mime_type, 'cache-control': publicPost ? 'public, max-age=300' : 'private, max-age=300' }); res.end(readFileSync(path)); return true;
   }
   if (fileName.startsWith('post-')) {
     const post = db.prepare('SELECT user_id,visibility FROM posts WHERE image_url=?').get(`/media/${fileName}`);
@@ -34,5 +35,5 @@ export async function handleMediaRoutes(ctx) {
     if (post.visibility !== '所有人') { const presented = bearerToken(req); const user = presented ? auth.authenticateToken(presented) : null; if (!user || user.id !== post.user_id) { json(res, 401, { error: 'AUTH_REQUIRED' }, env, rid); return true; } }
   }
   const extension = extname(fileName).toLowerCase();
-  res.writeHead(200, { 'content-type': extension === '.png' ? 'image/png' : extension === '.webp' ? 'image/webp' : 'image/jpeg' }); res.end(readFileSync(path)); return true;
+  res.writeHead(200, { ...corsHeaders(env), 'content-type': extension === '.png' ? 'image/png' : extension === '.webp' ? 'image/webp' : 'image/jpeg' }); res.end(readFileSync(path)); return true;
 }

@@ -1,18 +1,19 @@
 import { removeMediaFile } from './media.mjs';
 
 export function cleanupExpiredMedia(db, { now = Date.now(), logger } = {}) {
-  const rows = db.prepare(`SELECT * FROM media
-    WHERE deleted_at=0 AND expires_at<=?
-    AND NOT EXISTS (SELECT 1 FROM posts WHERE image_url='/media/' || media.file_name)`)
-    .all(now);
+  const rows = db.prepare(`SELECT media.*,
+    EXISTS (SELECT 1 FROM posts WHERE image_url='/media/' || media.file_name) AS referenced
+    FROM media WHERE deleted_at=0`).all();
   let removed = 0;
   for (const row of rows) {
-    removeMediaFile(row);
+    if (row.expires_at > now || row.referenced) continue;
+    if (!removeMediaFile(row)) continue;
     db.prepare('UPDATE media SET deleted_at=? WHERE id=? AND deleted_at=0').run(now, row.id);
     removed += 1;
   }
-  if (removed > 0) logger?.info('media.cleanup_completed', { removed, cutoff: now });
-  return { scanned: rows.length, removed };
+  const result = { scanned: rows.length, removed, skipped: rows.length - removed };
+  logger?.info('media.cleanup_completed', result);
+  return result;
 }
 
 export function scheduleMediaCleanup(db, options = {}) {
