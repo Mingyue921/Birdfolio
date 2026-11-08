@@ -1,0 +1,17 @@
+{
+  "name": "birdfolio-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "start": "node --dns-result-order=ipv4first src/server.mjs",
+    "start:release": "npm run check:release && node --dns-result-order=ipv4first src/server.mjs --release",
+    "check:env": "node scripts/check-env.mjs",
+    "check:release": "node scripts/check-env.mjs --release",
+    "test": "node --test test/*.test.mjs",
+    "test:ci": "node --test --test-reporter=spec test/*.test.mjs"
+  }
+}

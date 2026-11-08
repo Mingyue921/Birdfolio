@@ -1,0 +1,20 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "module description"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "description"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "观鸟手账"
+    },
+    {
+      "name": "location_permission_reason",
+      "value": "用于在你主动操作时获取当前位置并保存观察地点"
+    }
+  ]
+}

@@ -1,0 +1,52 @@
+/node_modules
+/oh_modules
+/local.properties
+/.idea
+/.codex
+**/build
+/.hvigor
+.cxx
+/.clangd
+/.clang-format
+/.clang-tidy
+**/.test
+/.appanalyzer
+
+# Generated packages, logs, coverage and operating-system metadata.
+*.hap
+*.hsp
+*.app
+*.log
+npm-debug.log*
+coverage/
+.nyc_output/
+.DS_Store
+Thumbs.db
+
+# Local service credentials. Keep real Tencent Map keys out of source control.
+/entry/src/main/ets/services/MapSecret.ets
+
+# Environment files may contain provider keys, mail credentials and endpoints.
+**/.env
+**/.env.*
+!**/.env.example
+
+# Local backend runtime data. Deny by default so new database, upload, backup or
+# diagnostic file types cannot be committed accidentally.
+/server/data/*
+!/server/data/uploads/
+/server/data/uploads/*
+!/server/data/uploads/.gitkeep
+
+# Local signing material and private keys. Keep certificates outside the repository
+# and configure them through DevEco Studio or a protected CI secret store.
+**/*.p12
+**/*.pfx
+**/*.p7b
+**/*.jks
+**/*.keystore
+**/*.key
+**/*.pem
+**/*.der
+**/*.pk8
+**/*.csr

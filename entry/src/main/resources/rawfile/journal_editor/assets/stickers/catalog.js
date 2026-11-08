@@ -1,0 +1,30 @@
+window.BIRDFOLIO_STICKERS = [
+  ['openmoji-dove', '和平鸽', '鸟类', 'dove.svg'],
+  ['openmoji-duck', '鸭', '鸟类', 'duck.svg'],
+  ['openmoji-swan', '天鹅', '鸟类', 'swan.svg'],
+  ['openmoji-owl', '猫头鹰', '鸟类', 'owl.svg'],
+  ['openmoji-flamingo', '火烈鸟', '鸟类', 'flamingo.svg'],
+  ['openmoji-dodo', '渡渡鸟', '鸟类', 'dodo.svg'],
+  ['openmoji-peacock', '孔雀', '鸟类', 'peacock.svg'],
+  ['openmoji-parrot', '鹦鹉', '鸟类', 'parrot.svg'],
+  ['openmoji-black-bird', '黑鸟', '鸟类', 'black-bird.svg'],
+  ['openmoji-wing', '羽翼', '鸟类', 'wing.svg'],
+  ['openmoji-phoenix', '凤凰', '鸟类', 'phoenix.svg'],
+  ['openmoji-goose', '鹅', '鸟类', 'goose.svg'],
+  ['openmoji-white-flower', '白花', '花卉', 'white-flower.svg'],
+  ['openmoji-cherry-blossom', '樱花', '花卉', 'cherry-blossom.svg'],
+  ['openmoji-lotus', '莲花', '花卉', 'lotus.svg'],
+  ['openmoji-rose', '玫瑰', '花卉', 'rose.svg'],
+  ['openmoji-wilted-flower', '凋谢花朵', '花卉', 'wilted-flower.svg'],
+  ['openmoji-sunflower', '向日葵', '花卉', 'sunflower.svg'],
+  ['openmoji-blossom', '花朵', '花卉', 'blossom.svg'],
+  ['openmoji-tulip', '郁金香', '花卉', 'tulip.svg'],
+  ['openmoji-four-leaf-clover', '四叶草', '枝叶', 'four-leaf-clover.svg'],
+  ['openmoji-maple-leaf', '枫叶', '枝叶', 'maple-leaf.svg'],
+  ['openmoji-fallen-leaf', '落叶', '枝叶', 'fallen-leaf.svg'],
+  ['openmoji-leaf-wind', '风中叶片', '枝叶', 'leaf-fluttering-wind.svg'],
+  ['openmoji-empty-nest', '空鸟巢', '鸟巢', 'empty-nest.svg'],
+  ['openmoji-nest-eggs', '鸟巢与蛋', '鸟巢', 'nest-with-eggs.svg']
+].map(function (item) {
+  return { id: item[0], name: item[1], category: item[2], file: 'assets/stickers/openmoji/png/' + item[3].replace(/\.svg$/, '.png') };
+});

@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+  <title>观鸟手账编辑器</title>
+  <script src="fabric.min.js"></script>
+  <script src="assets/stickers/catalog.js"></script>
+  <script src="assets/stickers/sticker-data.js"></script>
+  <style>
+    @font-face { font-family:'Birdfolio XiaoWei'; src:url('assets/fonts/zcool-xiaowei/ZCOOLXiaoWei-Regular.ttf') format('truetype'); font-display:block; }
+    @font-face { font-family:'Birdfolio MaShan'; src:url('assets/fonts/ma-shan-zheng/MaShanZheng-Regular.ttf') format('truetype'); font-display:block; }
+    @font-face { font-family:'Birdfolio QingKe'; src:url('assets/fonts/zcool-qingke/ZCOOLQingKeHuangYou-Regular.ttf') format('truetype'); font-display:block; }
+    @font-face { font-family:'Birdfolio LongCang'; src:url('assets/fonts/long-cang/LongCang-Regular.ttf') format('truetype'); font-display:block; }
+    @font-face { font-family:'Birdfolio LiuJian'; src:url('assets/fonts/liu-jian-mao-cao/LiuJianMaoCao-Regular.ttf') format('truetype'); font-display:block; }
+    @font-face { font-family:'Birdfolio ZhiMang'; src:url('assets/fonts/zhi-mang-xing/ZhiMangXing-Regular.ttf') format('truetype'); font-display:block; }
+    @font-face { font-family:'Birdfolio KuaiLe'; src:url('assets/fonts/zcool-kuaile/ZCOOLKuaiLe-Regular.ttf') format('truetype'); font-display:block; }
+    :root { --ink:#1c241f; --muted:#667068; --green:#2f6b4f; --green-soft:#e8f1ec; --paper:#fffefa; --line:#dbe2dc; --red:#c95845; }
+    * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+    html,body { width:100%; height:100%; margin:0; overflow:hidden; color:var(--ink); background:#eef0ec; font-family:system-ui,-apple-system,"HarmonyOS Sans SC",sans-serif; }
+    button,input { font:inherit; color:var(--ink); }
+    button { border:0; background:none; }
+    #app { height:100%; display:flex; flex-direction:column; }
+    .topbar { flex:0 0 auto; min-height:64px; padding:8px 10px; display:flex; align-items:center; gap:6px; background:#fff; border-bottom:1px solid #edf0ed; }
+    .icon-btn { width:42px; height:42px; display:grid; place-items:center; border-radius:8px; font-size:27px; color:#55605a; }
+    .icon-btn:active { background:#edf3ef; }
+    .title-block { min-width:0; flex:1; }
+    #title { width:100%; padding:0; border:0; outline:0; background:transparent; font-family:serif; font-size:20px; font-weight:700; color:var(--ink); }
+    #save-state { margin-top:2px; font-size:11px; color:var(--green); }
+    .workspace { position:relative; min-height:0; flex:1; display:flex; align-items:center; justify-content:center; padding:18px 28px 14px; overflow:hidden; }
+    .paper { width:min(100%,430px); aspect-ratio:3/4; position:relative; background:var(--paper); box-shadow:0 3px 14px #1c241f20; border-radius:5px; overflow:hidden; }
+    .canvas-container { width:100%!important; height:100%!important; }
+    .canvas-container canvas { width:100%!important; height:100%!important; }
+    .page-chip { position:absolute; top:10px; left:50%; z-index:5; transform:translateX(-50%); padding:7px 11px; border-radius:18px; background:#ffffffec; box-shadow:0 2px 10px #00000016; color:var(--muted); font-size:12px; }
+    .selection-bar { display:none; position:absolute; z-index:6; left:50%; bottom:18px; transform:translateX(-50%); gap:3px; padding:5px; white-space:nowrap; border:1px solid var(--line); border-radius:9px; background:#fffffff5; box-shadow:0 4px 16px #0002; }
+    .selection-bar.show { display:flex; }
+    .selection-bar button { min-width:42px; height:34px; padding:0 8px; border-radius:6px; font-size:12px; }
+    .selection-bar button:active { background:var(--green-soft); }
+    .selection-bar .danger { color:var(--red); }
+    .panel { display:none; flex:0 0 auto; max-height:280px; padding:10px 12px; overflow-x:hidden; overflow-y:auto; background:#fff; border-top:1px solid var(--line); }
+    .panel.show { display:block; }
+    .panel-row { width:100%; display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+    .choice { flex:0 0 auto; min-width:44px; height:38px; padding:0 12px; border:1px solid var(--line); border-radius:7px; background:#fff; color:var(--ink); font-size:13px; }
+    .choice.active { color:var(--green); border-color:var(--green); background:var(--green-soft); }
+    .choice.danger { color:var(--red); }
+    .text-entry { width:100%; display:flex; gap:8px; }
+    .text-entry input { min-width:0; flex:1; height:40px; padding:0 12px; border:1px solid var(--line); border-radius:7px; outline:none; background:#f7f8f6; color:var(--ink); }
+    .font-row { width:100%; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:7px; margin-top:9px; padding:2px 0 4px; }
+    .font-choice { min-width:0; width:100%; height:44px; padding:0 7px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; border:1px solid var(--line); border-radius:7px; background:#fff; color:var(--ink); font-size:16px; }
+    .font-choice.active { color:var(--green); border-color:var(--green); background:var(--green-soft); }
+    .primary { height:40px; padding:0 16px; border-radius:7px; color:#fff; background:var(--green); }
+    .swatch { width:34px; height:34px; border:3px solid #fff; border-radius:50%; box-shadow:0 0 0 1px var(--line); }
+    .swatch.active { box-shadow:0 0 0 2px var(--green),0 0 0 4px #fff; }
+    .color-picker { width:38px; height:38px; padding:2px; border:1px solid var(--line); border-radius:50%; background:#fff; }
+    .sticker-categories { display:flex; gap:7px; margin-bottom:10px; overflow-x:auto; padding-bottom:2px; }
+    .sticker-category { flex:0 0 auto; height:32px; padding:0 12px; border:1px solid var(--line); border-radius:16px; background:#fff; color:var(--muted); font-size:12px; }
+    .sticker-category.active { color:var(--green); border-color:var(--green); background:var(--green-soft); }
+    .sticker-grid { display:grid; grid-template-columns:repeat(5,minmax(54px,1fr)); gap:8px; }
+    .sticker-option { min-width:0; height:76px; padding:5px 3px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; border:1px solid var(--line); border-radius:7px; background:#fafbf9; color:var(--muted); font-size:10px; }
+    .sticker-option:active { border-color:var(--green); background:var(--green-soft); }
+    .sticker-option img { width:43px; height:43px; object-fit:contain; pointer-events:none; }
+    .sticker-option span { width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:center; }
+    .sticker-empty { padding:18px 4px; color:var(--muted); font-size:13px; text-align:center; }
+    .pages { display:flex; gap:8px; overflow-x:auto; padding-bottom:3px; }
+    .page-thumb { min-width:66px; height:42px; border:1px solid var(--line); border-radius:6px; background:#fafaf8; font-size:12px; }
+    .page-thumb.active { color:var(--green); border:2px solid var(--green); background:var(--green-soft); }
+    .page-card { flex:0 0 74px; text-align:center; color:var(--muted); font-size:10px; }
+    .page-card img { display:block; width:66px; height:88px; margin:0 auto 4px; object-fit:cover; border:1px solid var(--line); border-radius:4px; background:#f6f7f5; }
+    .page-card.active img { border:2px solid var(--green); }
+    .page-card.dragging { opacity:.62; transform:scale(.96); }
+    .property-row { width:100%; display:flex; flex-wrap:wrap; align-items:center; gap:7px; margin-top:9px; padding-top:9px; border-top:1px solid #edf0ed; }
+    .property-label { flex:0 0 38px; color:var(--muted); font-size:11px; }
+    .range { width:120px; accent-color:var(--green); }
+    .layer-list { display:flex; flex-direction:column; gap:6px; }
+    .layer-item { display:grid; grid-template-columns:24px minmax(64px,1fr) repeat(7,28px); align-items:center; gap:2px; min-height:42px; padding:4px; border:1px solid var(--line); border-radius:7px; background:#fafbf9; }
+    .layer-item.active { border-color:var(--green); background:var(--green-soft); }
+    .layer-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:left; font-size:12px; }
+    .layer-action { width:28px; height:32px; border-radius:6px; color:var(--muted); font-size:14px; }
+    .layer-action.danger { color:var(--red); }
+    .panel-title { margin-bottom:8px; font-size:12px; color:var(--muted); }
+    #app.busy { pointer-events:none; }
+    #app.busy .toast { pointer-events:none; }
+    .toolbar { flex:0 0 auto; height:72px; display:grid; grid-template-columns:repeat(6,1fr); background:#fff; border-top:1px solid #edf0ed; padding-bottom:env(safe-area-inset-bottom); }
+    .tool { min-width:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; color:#606961; font-size:11px; }
+    .tool .glyph { height:25px; font-size:23px; line-height:25px; }
+    .tool.active { color:var(--green); background:var(--green-soft); }
+    .empty { position:absolute; inset:0; display:none; place-items:center; color:var(--muted); font-size:14px; pointer-events:none; }
+    .empty.show { display:grid; }
+    .toast { position:fixed; z-index:20; left:50%; bottom:92px; max-width:80%; transform:translateX(-50%); padding:10px 16px; border-radius:8px; color:#fff; background:#1c241fee; font-size:13px; opacity:0; transition:opacity .18s; pointer-events:none; }
+    .toast.show { opacity:1; }
+    .save-failure-overlay { position:fixed; z-index:100; inset:0; display:none; align-items:center; justify-content:center; padding:24px; background:#1c241f66; pointer-events:auto; }
+    .save-failure-overlay.show { display:flex; }
+    .save-failure-dialog { width:min(100%,360px); padding:20px; display:grid; gap:10px; border-radius:8px; background:#fff; box-shadow:0 12px 36px #0004; }
+    .save-failure-dialog .primary,.save-failure-dialog .choice { width:100%; }
+    .save-failure-title { font-family:serif; font-size:20px; font-weight:700; }
+    .save-failure-copy { margin-bottom:4px; color:var(--muted); font-size:13px; line-height:1.6; }
+  </style>
+</head>
+<body>
+<main id="app">
+  <input id="image-input" type="file" accept="image/*" hidden>
+  <header class="topbar">
+    <button class="icon-btn" id="back" aria-label="返回">‹</button>
+    <div class="title-block"><input id="title" value="自然观察手账"><div id="save-state">正在载入…</div></div>
+    <button class="icon-btn" id="undo" aria-label="撤销">↶</button>
+    <button class="icon-btn" id="redo" aria-label="重做">↷</button>
+    <button class="icon-btn" id="export" aria-label="导出" style="display:none">⇧</button>
+  </header>
+  <section class="workspace">
+    <button class="page-chip" id="page-chip">第 1 / 1 页</button>
+    <div class="paper"><canvas id="canvas" width="720" height="960"></canvas><div class="empty" id="empty">从下方添加图片、文字或贴纸</div></div>
+    <div class="selection-bar" id="selection-bar">
+      <button id="edit-text">编辑</button><button id="duplicate">复制</button><button id="forward">上移</button><button id="backward">下移</button><button class="danger" id="delete-object">删除</button>
+    </div>
+  </section>
+  <section class="panel" id="panel"></section>
+  <nav class="toolbar">
+    <button class="tool" data-tool="image"><span class="glyph">▧</span><span>图片</span></button>
+    <button class="tool" data-tool="text"><span class="glyph">T</span><span>文字</span></button>
+    <button class="tool" data-tool="draw"><span class="glyph">∿</span><span>画笔</span></button>
+    <button class="tool" data-tool="sticker"><span class="glyph">✦</span><span>贴纸</span></button>
+    <button class="tool" data-tool="template"><span class="glyph">▤</span><span>模板</span></button>
+    <button class="tool" data-tool="layers"><span class="glyph">▱</span><span>图层</span></button>
+  </nav>
+  <div class="toast" id="toast"></div>
+</main>
+<script type="application/x-disabled">
+(() => {
+  const W = 720, H = 960;
+  const canvas = new fabric.Canvas('canvas', {
+    width: W, height: H, preserveObjectStacking: true, selectionColor: '#2f6b4f18',
+    selectionBorderColor: '#2f6b4f', selectionLineWidth: 2, allowTouchScrolling: false
+  });
+  fabric.Object.prototype.set({ transparentCorners:false, cornerColor:'#fff', cornerStrokeColor:'#2f6b4f', borderColor:'#2f6b4f', cornerSize:18, padding:4 });
+  let book = null, observationTexts = {}, pageIndex = 0, renderToken = 0, saveTimer = 0;
+  let history = [], historyIndex = -1, restoring = false, activeTool = '';
+  let drawColor='#2f6b4f',drawWidth=7;
+  let textFont='Birdfolio XiaoWei';
+  const fontChoices=[
+    {name:'系统黑体',family:'system-ui'},
+    {name:'系统宋体',family:'serif'},
+    {name:'小薇体',family:'Birdfolio XiaoWei'},
+    {name:'手写楷书',family:'Birdfolio MaShan'},
+    {name:'黄油体',family:'Birdfolio QingKe'},
+    {name:'龙藏体',family:'Birdfolio LongCang'},
+    {name:'毛草体',family:'Birdfolio LiuJian'},
+    {name:'志莽行书',family:'Birdfolio ZhiMang'},
+    {name:'快乐体',family:'Birdfolio KuaiLe'}
+  ];
+  let stickerCatalog = Array.isArray(window.BIRDFOLIO_STICKERS) ? window.BIRDFOLIO_STICKERS : [], stickerCategory = '全部';
+  const legacyStickerLabels={leaf:'❧',feather:'⌁',water:'≋',sun:'☀',bird:'⌁',date:'◫'};
+  const catalogReady=Promise.resolve();
+  const $ = id => document.getElementById(id);
+  const tools = [...document.querySelectorAll('.tool')];
+  const now = () => String(Date.now());
+  const uid = prefix => prefix + '-' + now() + '-' + Math.floor(Math.random() * 10000);
+  const currentPage = () => book && book.pages[pageIndex];
+  function toast(message) { const el=$('toast'); el.textContent=message; el.classList.add('show'); clearTimeout(el._timer); el._timer=setTimeout(()=>el.classList.remove('show'),1600); }
+  function bridge(name, ...args) {
+    try { const native = window.BirdfolioNative; return native && typeof native[name] === 'function' ? native[name](...args) : undefined; }
+    catch (error) { console.error(name, error); return undefined; }
+  }
+  function setState(text, error=false) { $('save-state').textContent=text; $('save-state').style.color=error?'#c95845':'#2f6b4f'; }
+  function normalizeLegacy() {
+    if (!book || book.editorVersion === 2) return;
+    book.pages.forEach(page => page.elements.forEach(el => {
+      el.x *= 2.25; el.y *= 1.92; el.width *= 2.25; el.height *= 1.92;
+      if (el.style && el.style.fontSize) el.style.fontSize *= 2;
+    }));
+    book.editorVersion = 2;
+  }
+  function snapshot() {
+    if (restoring || !book) return;
+    const raw=JSON.stringify(book); if (history[historyIndex]===raw) return;
+    history=history.slice(0,historyIndex+1); history.push(raw); if(history.length>40) history.shift(); historyIndex=history.length-1;
+  }
+  function scheduleSave() {
+    if (!book) return; book.updatedAt=now(); setState('保存中…'); clearTimeout(saveTimer);
+    saveTimer=setTimeout(async()=>{ const result=bridge('saveBook',JSON.stringify(book),pageIndex); if(result&&typeof result.then==='function') await result; setState('已自动保存'); },450);
+  }
+  function commit() { snapshot(); scheduleSave(); updatePageInfo(); }
+  function elementFromObject(obj) {
+    const el=obj.birdfolio; if(!el) return null;
+    el.x=Math.round(obj.left||0); el.y=Math.round(obj.top||0); el.rotation=Math.round(obj.angle||0); el.scale=Number((((obj.scaleX||1)+(obj.scaleY||1))/2).toFixed(3)); el.zIndex=canvas.getObjects().indexOf(obj);
+    if(el.type==='text') { el.content=obj.text||''; el.width=Math.max(60,Math.round(obj.width||el.width)); el.height=Math.max(36,Math.round(obj.height||el.height)); }
+    return el;
+  }
+  function syncPage() {
+    const page=currentPage(); if(!page) return;
+    page.elements=canvas.getObjects().map(elementFromObject).filter(Boolean); page.updatedAt=now();
+  }
+  function common(obj,el) {
+    obj.set({ left:el.x||0, top:el.y||0, angle:el.rotation||0, scaleX:el.scale||1, scaleY:el.scale||1, selectable:!el.locked, evented:true });
+    obj.birdfolio=el; obj.setControlsVisibility({ mt:false, mb:false, ml:false, mr:false }); return obj;
+  }
+  function stickerAsset(id) { return stickerCatalog.find(item=>item.id===id); }
+  function stickerSource(asset) {
+    const embedded=window.BIRDFOLIO_STICKER_DATA&&window.BIRDFOLIO_STICKER_DATA[asset.id];
+    return embedded||'';
+  }
+  function loadFabricImage(source) {
+    return new Promise(resolve=>{
+      if(!source){resolve(null);return;}
+      let settled=false;
+      const finish=image=>{if(settled)return;settled=true;clearTimeout(timer);resolve(image);};
+      const timer=setTimeout(()=>finish(null),5000);
+      fabric.Image.fromURL(source,image=>finish(image&&image.width>0&&image.height>0?image:null));
+    });
+  }
+  async function makeObject(el) {
+    const style=el.style||{};
+    if(el.type==='text'||el.type==='observation') {
+      const content=el.type==='observation' ? (observationTexts[el.content]||'关联观察已删除') : el.content;
+      const obj=new fabric.IText(content,{ width:el.width||520, fontSize:style.fontSize||32, fontFamily:style.fontFamily||'serif', fill:style.color||'#1c241f', lineHeight:1.35, editable:el.type==='text' });
+      return common(obj,el);
+    }
+    if(el.type==='sticker') {
+      const asset=stickerAsset(el.content);
+      if(asset) {
+        const image=await loadFabricImage(stickerSource(asset));
+        if(image) {
+          const naturalWidth=image.width||618,naturalHeight=image.height||618;
+          const targetWidth=Math.max(1,(el.width||150)*(el.scale||1));
+          const targetHeight=Math.max(1,(el.height||150)*(el.scale||1));
+          el.width=naturalWidth;el.height=naturalHeight;
+          el.scale=Math.min(targetWidth/naturalWidth,targetHeight/naturalHeight);
+          return common(image,el);
+        }
+      }
+      return common(new fabric.Text(legacyStickerLabels[el.content]||'✦',{fontSize:74,fill:style.color||'#2f6b4f',fontFamily:'serif'}),el);
+    }
+    if(el.type==='drawing') return common(new fabric.Path(el.content||'M 0 0 L 1 1',{fill:'',stroke:style.strokeColor||'#2f6b4f',strokeWidth:style.strokeWidth||5,strokeLineCap:'round',strokeLineJoin:'round'}),el);
+    if(el.type==='image') {
+      let source=el.content&&el.content.indexOf('data:image/')===0?el.content:''; try { if(!source)source=await bridge('readImage',el.content)||''; } catch(_error) {}
+      if(!source) return common(new fabric.Rect({width:el.width||500,height:el.height||320,fill:'#e5e9e5',stroke:'#bbc4bd',strokeDashArray:[8,6]}),el);
+      return await new Promise(resolve=>fabric.Image.fromURL(source,img=>{
+        if(!img){resolve(null);return;}
+        const naturalWidth=img.width||1,naturalHeight=img.height||1;
+        const targetWidth=Math.max(1,(el.width||naturalWidth)*(el.scale||1)),targetHeight=Math.max(1,(el.height||naturalHeight)*(el.scale||1));
+        const displayScale=Math.min(targetWidth/naturalWidth,targetHeight/naturalHeight);
+        el.width=naturalWidth;el.height=naturalHeight;el.scale=displayScale;
+        resolve(common(img,el));
+      }));
+    }
+    return null;
+  }
+  async function renderPage(selectId='') {
+    const token=++renderToken, page=currentPage(); canvas.discardActiveObject(); canvas.clear();
+    if(!page) return; canvas.setBackgroundColor(page.backgroundColor||'#fffefa',()=>canvas.renderAll());
+    for(const el of [...page.elements].sort((a,b)=>(a.zIndex||0)-(b.zIndex||0))) {
+      const obj=await makeObject(el); if(token!==renderToken)return; if(obj){canvas.add(obj);if(el.id===selectId)canvas.setActiveObject(obj);}
+    }
+    canvas.renderAll(); updatePageInfo(); updateSelection();
+  }
+  function updatePageInfo() { $('page-chip').textContent=`第 ${pageIndex+1} / ${book?book.pages.length:1} 页`; $('empty').classList.toggle('show',!!book&&currentPage().elements.length===0); }
+  function updateSelection() {
+    const obj=canvas.getActiveObject(), bar=$('selection-bar'); bar.classList.toggle('show',!!obj); $('edit-text').style.display=obj&&obj.birdfolio&&obj.birdfolio.type==='text'?'block':'none';
+  }
+  function addElement(el,obj) { currentPage().elements.push(el); canvas.add(common(obj,el)); canvas.setActiveObject(obj); canvas.renderAll(); syncPage(); commit(); updateSelection(); }
+  function addText(text='双击编辑文字') {
+    const el={id:uid('text'),type:'text',x:90,y:150,width:520,height:80,rotation:0,scale:1,zIndex:currentPage().elements.length,locked:false,content:text,style:{fontSize:38,fontFamily:textFont,color:'#1c241f'}};
+    addElement(el,new fabric.IText(text,{width:520,fontSize:38,fontFamily:textFont,fill:'#1c241f'})); canvas.getActiveObject().enterEditing();
+  }
+  async function selectFont(fontFamily) {
+    textFont=fontFamily;
+    try { await document.fonts.load(`38px "${fontFamily}"`); } catch(_error) {}
+    const obj=canvas.getActiveObject();
+    if(obj&&obj.birdfolio&&(obj.birdfolio.type==='text'||obj.birdfolio.type==='observation')) {
+      obj.set({fontFamily:fontFamily});obj.birdfolio.style=obj.birdfolio.style||{};obj.birdfolio.style.fontFamily=fontFamily;
+      obj.setCoords();canvas.requestRenderAll();syncPage();commit();
+    }
+    document.querySelectorAll('[data-font]').forEach(btn=>btn.classList.toggle('active',btn.dataset.font===fontFamily));
+  }
+  function addImageFile(file) {
+    if(!file)return;setState('正在处理图片…');const reader=new FileReader();
+    reader.onerror=()=>{setState('照片读取失败',true);toast('照片读取失败');};
+    reader.onload=()=>{const sourceImage=new Image();sourceImage.onerror=()=>{setState('照片格式暂不支持',true);toast('照片格式暂不支持');};sourceImage.onload=()=>{
+      const longest=Math.max(sourceImage.naturalWidth,sourceImage.naturalHeight),ratio=longest>960?960/longest:1;
+      const temp=document.createElement('canvas');temp.width=Math.max(1,Math.round(sourceImage.naturalWidth*ratio));temp.height=Math.max(1,Math.round(sourceImage.naturalHeight*ratio));
+      temp.getContext('2d').drawImage(sourceImage,0,0,temp.width,temp.height);const dataUrl=temp.toDataURL('image/jpeg',0.72);
+      const maxWidth=580,maxHeight=650,displayScale=Math.min(maxWidth/temp.width,maxHeight/temp.height,1);
+      const displayWidth=Math.round(temp.width*displayScale),displayHeight=Math.round(temp.height*displayScale);
+      const left=Math.round((W-displayWidth)/2),top=Math.round((H-displayHeight)/2);
+      const el={id:uid('image'),type:'image',x:left,y:top,width:temp.width,height:temp.height,rotation:0,scale:displayScale,zIndex:currentPage().elements.length,locked:false,content:dataUrl};
+      fabric.Image.fromURL(dataUrl,img=>{if(!img){setState('WebView 无法解码照片',true);toast('WebView 无法解码照片');return;}addElement(el,img);setState('已自动保存');});
+    };sourceImage.src=String(reader.result);};reader.readAsDataURL(file);
+  }
+  async function addSticker(id) {
+    const asset=stickerAsset(id);
+    if(!asset){toast('贴纸素材不存在');return;}
+    setState('正在加载贴纸…');
+    const image=await loadFabricImage(stickerSource(asset));
+    if(!image){setState('贴纸加载失败',true);toast('贴纸加载失败');return;}
+    const naturalWidth=image.width||128,naturalHeight=image.height||128;
+    const scale=Math.min(150/naturalWidth,150/naturalHeight);
+    const el={id:uid('sticker'),type:'sticker',x:Math.round((W-naturalWidth*scale)/2),y:Math.round((H-naturalHeight*scale)/2),width:naturalWidth,height:naturalHeight,rotation:0,scale:scale,zIndex:currentPage().elements.length,locked:false,content:id};
+    addElement(el,image);setState('已自动保存');
+  }
+  function renderStickerPanel() {
+    const categories=['全部',...new Set(stickerCatalog.map(item=>item.category))];
+    if(!categories.includes(stickerCategory))stickerCategory='全部';
+    const items=stickerCategory==='全部'?stickerCatalog:stickerCatalog.filter(item=>item.category===stickerCategory);
+    $('panel').innerHTML='<div class="sticker-categories">'+categories.map(category=>`<button class="sticker-category ${category===stickerCategory?'active':''}" data-sticker-category="${category}">${category}</button>`).join('')+'</div>'+
+      (items.length?'<div class="sticker-grid">'+items.map(item=>`<button class="sticker-option" data-sticker="${item.id}" aria-label="${item.name}"><img src="${item.file}" alt=""><span>${item.name}</span></button>`).join('')+'</div>':'<div class="sticker-empty">贴纸素材未加载</div>');
+  }
+  function removeSelected() { const obj=canvas.getActiveObject();if(!obj)return;canvas.remove(obj);syncPage();commit();updateSelection(); }
+  function duplicateSelected() { const obj=canvas.getActiveObject();if(!obj)return;obj.clone(clone=>{const el=JSON.parse(JSON.stringify(obj.birdfolio));el.id=uid(el.type);el.x=(obj.left||0)+24;el.y=(obj.top||0)+24;clone.birdfolio=el;clone.set({left:el.x,top:el.y});canvas.add(clone);canvas.setActiveObject(clone);syncPage();commit();}); }
+  function moveLayer(forward) { const obj=canvas.getActiveObject();if(!obj)return;forward?canvas.bringForward(obj):canvas.sendBackwards(obj);syncPage();commit(); }
+  function showPanel(tool) {
+    activeTool=activeTool===tool?'':tool; tools.forEach(x=>x.classList.toggle('active',x.dataset.tool===activeTool)); const panel=$('panel'); panel.classList.toggle('show',!!activeTool); panel.innerHTML=''; if(!activeTool)return;
+    if(activeTool==='text') { const selected=canvas.getActiveObject();if(selected&&selected.fontFamily)textFont=selected.fontFamily; }
+    if(activeTool==='image'){$('image-input').value='';$('image-input').click();activeTool='';panel.classList.remove('show');tools.forEach(x=>x.classList.remove('active'));return;}
+    if(activeTool==='text') panel.innerHTML='<div class="text-entry"><input id="new-text" placeholder="输入手账文字" value="写下这次相遇…"><button class="primary" id="add-text">添加</button></div><div class="font-row">'+fontChoices.map(font=>`<button class="font-choice ${font.family===textFont?'active':''}" data-font="${font.family}" style="font-family:'${font.family}'">${font.name}</button>`).join('')+'</div>';
+    if(activeTool==='draw') panel.innerHTML='<div class="panel-row">'+[
+      ['#2f6b4f','森林绿'],['#1c241f','墨黑'],['#397b76','松石绿'],['#4f8396','湖蓝'],['#4f6f9b','天空蓝'],
+      ['#778b45','苔藓绿'],['#a86643','暖棕'],['#d5a63b','赭黄'],['#c95845','珊瑚红'],['#9b5873','莓果色']
+    ].map(item=>`<button class="swatch ${drawColor===item[0]?'active':''}" data-color="${item[0]}" aria-label="${item[1]}" title="${item[1]}" style="background:${item[0]}"></button>`).join('')+
+      `<input class="color-picker" id="custom-color" type="color" value="${drawColor}" aria-label="自定义颜色" title="自定义颜色">`+
+      `<button class="choice ${drawWidth===3?'active':''}" data-width="3">细</button><button class="choice ${drawWidth===7?'active':''}" data-width="7">中</button><button class="choice ${drawWidth===14?'active':''}" data-width="14">粗</button><button class="choice danger" id="clear-draw">清空笔画</button></div>`;
+    if(activeTool==='sticker') renderStickerPanel();
+    if(activeTool==='template') panel.innerHTML='<div class="panel-row"><button class="choice" data-template="wetland">湿地晨光</button><button class="choice" data-template="forest">林间观察</button><button class="choice" data-template="minimal">极简档案</button></div>';
+    if(activeTool==='layers') renderPagesPanel();
+    bindPanel(); canvas.isDrawingMode=activeTool==='draw'; if(canvas.isDrawingMode){canvas.freeDrawingBrush.color=drawColor;canvas.freeDrawingBrush.width=drawWidth;}
+  }
+  function renderPagesPanel() { $('panel').innerHTML='<div class="pages">'+book.pages.map((_,i)=>`<button class="page-thumb ${i===pageIndex?'active':''}" data-page="${i}">第 ${i+1} 页</button>`).join('')+'<button class="choice" id="add-page">＋ 新页面</button><button class="choice" id="copy-page">复制本页</button><button class="choice danger" id="delete-page">删除本页</button><button class="choice danger" id="delete-book">删除手账</button></div>'; }
+  function bindPanel() {
+    const panel=$('panel'); const add=$('add-text'); if(add)add.onclick=()=>{const input=$('new-text');if(input.value.trim())addText(input.value.trim());};
+    panel.querySelectorAll('[data-font]').forEach(btn=>btn.onclick=()=>selectFont(btn.dataset.font));
+    panel.querySelectorAll('[data-sticker]').forEach(btn=>btn.onclick=()=>addSticker(btn.dataset.sticker));
+    panel.querySelectorAll('[data-sticker-category]').forEach(btn=>btn.onclick=()=>{stickerCategory=btn.dataset.stickerCategory;renderStickerPanel();bindPanel();});
+    panel.querySelectorAll('[data-color]').forEach(btn=>btn.onclick=()=>{drawColor=btn.dataset.color;canvas.freeDrawingBrush.color=drawColor;panel.querySelectorAll('[data-color]').forEach(x=>x.classList.toggle('active',x===btn));const picker=$('custom-color');if(picker)picker.value=drawColor;});
+    const customColor=$('custom-color');if(customColor)customColor.oninput=()=>{drawColor=customColor.value;canvas.freeDrawingBrush.color=drawColor;panel.querySelectorAll('[data-color]').forEach(x=>x.classList.remove('active'));};
+    panel.querySelectorAll('[data-width]').forEach(btn=>btn.onclick=()=>{drawWidth=Number(btn.dataset.width);canvas.freeDrawingBrush.width=drawWidth;panel.querySelectorAll('[data-width]').forEach(x=>x.classList.toggle('active',x===btn));});
+    const clear=$('clear-draw');if(clear)clear.onclick=()=>{canvas.getObjects().filter(o=>o.birdfolio&&o.birdfolio.type==='drawing').forEach(o=>canvas.remove(o));syncPage();commit();};
+    panel.querySelectorAll('[data-template]').forEach(btn=>btn.onclick=()=>{const colors={wetland:'#fffefa',forest:'#f1f5ee',minimal:'#ffffff'};book.templateId=btn.dataset.template;currentPage().backgroundColor=colors[btn.dataset.template];canvas.setBackgroundColor(currentPage().backgroundColor,()=>canvas.renderAll());commit();});
+    panel.querySelectorAll('[data-page]').forEach(btn=>btn.onclick=()=>{syncPage();pageIndex=Number(btn.dataset.page);renderPage();renderPagesPanel();bindPanel();});
+    const addPage=$('add-page');if(addPage)addPage.onclick=()=>{syncPage();book.pages.push({id:uid('page'),elements:[],backgroundColor:currentPage().backgroundColor,updatedAt:now()});pageIndex=book.pages.length-1;commit();renderPage();renderPagesPanel();bindPanel();};
+    const copyPage=$('copy-page');if(copyPage)copyPage.onclick=()=>{syncPage();const copy=JSON.parse(JSON.stringify(currentPage()));copy.id=uid('page');copy.elements.forEach(el=>el.id=uid(el.type));book.pages.splice(pageIndex+1,0,copy);pageIndex++;commit();renderPage();renderPagesPanel();bindPanel();};
+    const deletePage=$('delete-page');if(deletePage)deletePage.onclick=()=>{if(!confirm('删除当前页面及其中全部内容？'))return;book.pages.splice(pageIndex,1);if(!book.pages.length)book.pages.push({id:uid('page'),elements:[],backgroundColor:'#fffefa',updatedAt:now()});pageIndex=Math.min(pageIndex,book.pages.length-1);commit();renderPage();renderPagesPanel();bindPanel();};
+    const deleteBook=$('delete-book');if(deleteBook)deleteBook.onclick=()=>{if(confirm('确定删除整本手账？该操作不会删除观察记录和相册原图。'))bridge('deleteBook',book.id);};
+  }
+  canvas.on('selection:created',updateSelection); canvas.on('selection:updated',updateSelection); canvas.on('selection:cleared',updateSelection);
+  canvas.on('object:modified',()=>{syncPage();commit();}); canvas.on('text:changed',()=>{syncPage();scheduleSave();});
+  canvas.on('path:created',event=>{const obj=event.path,path=(obj.path||[]).map(command=>command.join(' ')).join(' ');const el={id:uid('drawing'),type:'drawing',x:obj.left||0,y:obj.top||0,width:obj.width||100,height:obj.height||100,rotation:0,scale:1,zIndex:currentPage().elements.length,locked:false,content:path,style:{strokeColor:obj.stroke,strokeWidth:obj.strokeWidth}};obj.birdfolio=el;syncPage();commit();});
+  tools.forEach(btn=>btn.onclick=()=>showPanel(btn.dataset.tool));
+  $('image-input').onchange=event=>{const files=event.target.files;if(files&&files.length)addImageFile(files[0]);};
+  $('title').onchange=()=>{book.title=$('title').value.trim()||'自然观察手账';commit();};
+  $('back').onclick=()=>{syncPage();book.updatedAt=now();bridge('saveBook',JSON.stringify(book),pageIndex);setTimeout(()=>bridge('closeEditor'),80);};
+  $('undo').onclick=()=>{if(historyIndex<=0)return;historyIndex--;restoring=true;book=JSON.parse(history[historyIndex]);restoring=false;renderPage();scheduleSave();};
+  $('redo').onclick=()=>{if(historyIndex>=history.length-1)return;historyIndex++;restoring=true;book=JSON.parse(history[historyIndex]);restoring=false;renderPage();scheduleSave();};
+  $('export').onclick=async()=>{await document.fonts.ready;canvas.discardActiveObject();canvas.renderAll();setState('正在导出…');const data=canvas.toDataURL({format:'png',quality:1,multiplier:2});const result=await bridge('exportImage',data,book.title,pageIndex+1);setState(result==='ok'?'已导出到相册':'导出失败',result!=='ok');};
+  $('page-chip').onclick=()=>showPanel('layers'); $('edit-text').onclick=()=>{const obj=canvas.getActiveObject();if(obj&&obj.enterEditing){obj.enterEditing();obj.selectAll();}};
+  $('duplicate').onclick=duplicateSelected; $('forward').onclick=()=>moveLayer(true); $('backward').onclick=()=>moveLayer(false); $('delete-object').onclick=removeSelected;
+  window.BirdfolioEditor={
+    async init(payload){ await catalogReady;await document.fonts.ready;book=payload.book;observationTexts={};(payload.observations||[]).forEach(item=>observationTexts[item.id]=item.text);normalizeLegacy();pageIndex=Math.min(payload.pageIndex||0,book.pages.length-1);$('title').value=book.title;snapshot();renderPage();scheduleSave(); },
+    refresh(){renderPage();}
+  };
+})();
+</script>
+<script src="editor-v3.js"></script>
+</body>
+</html>
