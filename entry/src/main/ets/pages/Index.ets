@@ -10,15 +10,15 @@ import { webview } from '@kit.ArkWeb';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { INITIAL_OBSERVATIONS, SPECIES } from '../data/BirdSeedData';
 import { catalogSpeciesImage } from '../data/BirdImageMap.generated';
-import { BirdSpecies, Observation, ObservationInput, YearStats, PlaceObservationStat, MonthlyObservationStat, SpeciesObservationStat, JournalBook, JournalPage, JournalElement, JournalElementStyle, BackendStatus, CommunityPost, PostComment, PostDraft, CreatePostInput, IdentificationCandidate, IdentificationResult, SpeciesCatalogResult, UserProfile, HealthResult } from '../models/BirdModels';
+import { BirdSpecies, Observation, ObservationInput, JournalBook, JournalPage, JournalElement, JournalElementStyle, BackendStatus, CommunityPost, PostComment, PostDraft, CreatePostInput, IdentificationCandidate, IdentificationResult, SpeciesCatalogResult, UserProfile, HealthResult } from '../models/BirdModels';
+import { AppRoute } from '../models/AppRoute';
 import { AuthMode, AuthSession, IdentificationResultV2, IdentificationMetadata, SyncMutation, SyncPushInput } from '../models/BetaModels';
 import { SyncJob } from '../models/SyncModels';
 import { ObservationService } from '../services/ObservationService';
 import { ObservationStorage } from '../services/ObservationStorage';
 import { MapService } from '../services/MapService';
 import { MapPrivacyStorage } from '../services/MapPrivacyStorage';
-import { MapComponent, MapController, Marker, LatLng, Privacy, ImageSourceType } from '@tencentmap/map';
-import { ObservationCard } from '../components/ObservationCard';
+import { Privacy } from '@tencentmap/map';
 import { ObservationDetailView } from '../components/ObservationDetailView';
 import { ObservationEditorView } from '../components/ObservationEditorView';
 import { AudioPlanningView } from '../components/pages/AudioPlanningView';
@@ -33,6 +33,12 @@ import { CommunityView } from '../components/pages/CommunityView';
 import { JournalBooksView } from '../components/pages/JournalBooksView';
 import { GuideView } from '../components/pages/GuideView';
 import { ProfileView } from '../components/pages/ProfileView';
+import { BirdDetailView } from '../components/pages/BirdDetailView';
+import { MapView } from '../components/pages/MapView';
+import { ObservationsView } from '../components/pages/ObservationsView';
+import { PostDetailView } from '../components/pages/PostDetailView';
+import { PublishView } from '../components/pages/PublishView';
+import { StatsView } from '../components/pages/StatsView';
 import { LocationService } from '../services/LocationService';
 import { JournalService } from '../services/JournalService';
 import { JournalStorage } from '../services/JournalStorage';
@@ -122,7 +128,7 @@ struct Index {
     return this.getUIContext().getHostContext() as common.UIAbilityContext;
   }
   @State tab: string = 'home';
-  @State page: string = '';
+  @State page: AppRoute = '';
   @State keyword: string = '';
   @State speciesId: string = 'egret';
   @State countText: string = '1';
@@ -143,7 +149,7 @@ struct Index {
   @State behavior: string = '觅食';
   @State audioRecording: boolean = false;
   @State publishVisibility: string = '所有人';
-  @State pickerReturn: string = 'record';
+  @State pickerReturn: AppRoute = 'record';
   @State displayName: string = '林中客';
   @State bio: string = '在城市里寻找有翅膀的邻居';
   @State avatarUri: string = '';
@@ -152,15 +158,8 @@ struct Index {
   @State editingRecordId: string = '';
   @State confirmDelete: boolean = false;
   @State selectedYear: number = new Date().getFullYear();
-  @State mapAuthFailed: boolean = false;
-  @State mapReady: boolean = false;
-  @State mapErrorMessage: string = '';
   @State mapPrivacyLoaded: boolean = false;
   @State mapPrivacyAgreed: boolean = false;
-  @State selectedMapPlaceName: string = '';
-  @State selectedMapPlaceCount: number = 0;
-  @State selectedMapSpeciesSummary: string = '';
-  @State selectedMapLatest: string = '';
   @State selectedPlaceFilter: string = '';
   @State locationStatus: string = '尚未设置坐标';
   @State recordLatitude: number = 0;
@@ -219,9 +218,6 @@ struct Index {
   private aiRequestId: string = '';
   private journalDragLastX: number = 0;
   private journalDragLastY: number = 0;
-  private mapController?: MapController;
-  private mapMarkers: Marker[] = [];
-  private mapMarkerPlaceNames: string[] = [];
   private journalWebController: webview.WebviewController = new webview.WebviewController();
   private journalImageCache: Map<string, string> = new Map<string, string>();
   private journalWebNeedsProxyReload: boolean = false;
@@ -293,7 +289,7 @@ struct Index {
         if (!saved) this.toast = '授权状态保存失败，下次需要重新确认';
         hilog.info(MAP_LOG_DOMAIN, MAP_LOG_TAG, 'User agreed to Tencent Map privacy terms');
       },
-      () => Privacy.setUserAgreePrivacy(false)
+      () => { Privacy.setUserAgreePrivacy(false); }
     );
   }
   private async load(): Promise<void> {
@@ -313,7 +309,6 @@ struct Index {
     this.syncJobs = await SyncQueueStorage.load(this.context);
     this.authCursor = await SyncCursorStorage.load(this.context);
     this.selectedYear = ObservationService.years(this.records)[0];
-    this.refreshMapMarkers();
     await this.checkBackend();
     await this.processSyncQueue();
   }
@@ -673,7 +668,6 @@ struct Index {
         this.records = nextRecords;
         await ObservationStorage.save(this.context, this.records);
         this.selectedYear = ObservationService.years(this.records)[0];
-        this.refreshMapMarkers();
       }
       const nextCursor: string = pulled.nextCursor || pulled.cursor || '';
       if (nextCursor && nextCursor.length > 0) {
@@ -965,106 +959,12 @@ struct Index {
   private birdScientificName(id: string): string { return this.guideSpecies.find((item: BirdSpecies) => item.id === id)?.scientificName || ''; }
   private selectedBirdSpecies(): BirdSpecies { return this.guideSpecies.find((item: BirdSpecies) => item.id === this.speciesId) || SPECIES[0]; }
   private formatPostTime(value: string): string { return value.length >= 16 ? value.substring(0, 16).replace('T', ' ') : value; }
-  private selectedYearStats(): YearStats { return ObservationService.yearStats(this.records, this.selectedYear); }
-  private selectedYearMaxMonth(): number { const stats = this.selectedYearStats(); let max = 1; stats.monthly.forEach((item) => { if (item.count > max) max = item.count; }); return max; }
-  private selectedMonthly(): MonthlyObservationStat[] { return this.selectedYearStats().monthly; }
-  private selectedSpeciesStats(): SpeciesObservationStat[] { return this.selectedYearStats().species; }
-  private selectedPlaceTotal(): number { let total = 0; this.selectedYearStats().places.forEach((item: PlaceObservationStat) => total += item.recordCount); return Math.max(1, total); }
-  private mapPlaces(): PlaceObservationStat[] { return ObservationService.placeStats(this.records); }
-  private mapValidPlaces(): PlaceObservationStat[] { return ObservationService.validPlaces(this.records); }
   private visibleObservations(): Observation[] {
     let result = this.records;
     if (this.selectedPlaceFilter.length > 0) result = result.filter((item: Observation) => item.placeName === this.selectedPlaceFilter);
     if (this.observationFilter === '本月') result = result.filter((item: Observation) => item.observedAt.indexOf(new Date().getFullYear().toString() + '-' + (new Date().getMonth() + 1).toString().padStart(2, '0')) === 0);
     if (this.observationFilter === '有照片') result = result.filter((item: Observation) => item.photos.length > 0);
     return result;
-  }
-  private mapCallbackError(error: Object): string {
-    if (!error) return '';
-    const businessError = error as BusinessError;
-    const code = businessError.code !== undefined ? businessError.code.toString() : 'unknown';
-    const message = businessError.message ? businessError.message : 'unknown error';
-    return 'code=' + code + ', message=' + message;
-  }
-  private onMapReady(error: Object, controller: MapController): void {
-    if (error) {
-      const detail = this.mapCallbackError(error);
-      hilog.error(MAP_LOG_DOMAIN, MAP_LOG_TAG, 'onReady failed: %{public}s', detail);
-      this.mapAuthFailed = true;
-      this.mapReady = false;
-      this.mapErrorMessage = '腾讯地图初始化失败：' + detail;
-      return;
-    }
-    hilog.info(MAP_LOG_DOMAIN, MAP_LOG_TAG, 'onReady succeeded');
-    this.mapReady = true;
-    this.mapErrorMessage = '';
-    this.mapController = controller;
-    this.refreshMapMarkers();
-  }
-
-  private refreshMapMarkers(): void {
-    if (!this.mapController) return;
-    const places = this.mapValidPlaces();
-    if (this.mapMarkers.length > 0) this.mapController.removeMarkers(this.mapMarkers);
-    this.mapMarkers = [];
-    this.mapMarkerPlaceNames = [];
-    if (places.length > 0) {
-      places.forEach((item: PlaceObservationStat) => {
-        const marker = new Marker({
-          position: new LatLng(item.latitude, item.longitude),
-          icon: { uri: 'tencentmap_locator.png', type: ImageSourceType.RawFile },
-          width: 42,
-          height: 52,
-          anchorX: 0.5,
-          anchorY: 1,
-          clickable: true,
-          zIndex: 10
-        });
-        marker.setOnClickListener(() => {
-          this.focusMapPlace(item);
-        });
-        const added = this.mapController!.addMarker(marker);
-        hilog.info(MAP_LOG_DOMAIN, MAP_LOG_TAG, 'Marker added=%{public}s place=%{public}s lat=%{public}s lng=%{public}s', added.toString(), item.placeName, item.latitude.toString(), item.longitude.toString());
-        if (added) {
-          this.mapMarkers.push(marker);
-          this.mapMarkerPlaceNames.push(item.placeName);
-        }
-      });
-      this.mapController.moveCamera(places.map((item: PlaceObservationStat) => new LatLng(item.latitude, item.longitude)), 60, false);
-    }
-  }
-  private focusMapPlace(item: PlaceObservationStat): void {
-    this.selectedMapPlaceName = item.placeName;
-    this.selectedMapPlaceCount = item.recordCount;
-    const placeRecords = this.records.filter((record: Observation) => record.placeName === item.placeName);
-    const speciesNames: string[] = [];
-    placeRecords.forEach((record: Observation) => { const name = this.birdName(record.speciesId); if (speciesNames.indexOf(name) < 0) speciesNames.push(name); });
-    this.selectedMapSpeciesSummary = speciesNames.slice(0, 3).join('、') + (speciesNames.length > 3 ? ' 等 ' + speciesNames.length + ' 种' : '');
-    placeRecords.sort((a: Observation, b: Observation) => b.observedAt.localeCompare(a.observedAt));
-    this.selectedMapLatest = placeRecords.length > 0 ? '最近记录 ' + placeRecords[0].observedAt : '';
-    if (!this.mapController || !this.mapReady) {
-      this.toast = item.placeName + ' · ' + item.recordCount.toString() + ' 次观察';
-      return;
-    }
-    this.mapController.setCenter(item.latitude, item.longitude, true);
-    this.mapController.setScaleLevel(16, true);
-    this.mapMarkers.forEach((marker: Marker, index: number) => {
-      const selected = this.mapMarkerPlaceNames[index] === item.placeName;
-      marker.options.scaleX = selected ? 1.45 : 1;
-      marker.options.scaleY = selected ? 1.45 : 1;
-      marker.options.zIndex = selected ? 30 : 10;
-      this.mapController!.updateMarker(marker);
-    });
-    hilog.info(MAP_LOG_DOMAIN, MAP_LOG_TAG, 'Focused map place=%{public}s lat=%{public}s lng=%{public}s', item.placeName, item.latitude.toString(), item.longitude.toString());
-  }
-  private onMapAuth(error: Object, success: boolean): void {
-    const detail = this.mapCallbackError(error);
-    hilog.info(MAP_LOG_DOMAIN, MAP_LOG_TAG, 'onAuthCallback success=%{public}s error=%{public}s', success.toString(), detail);
-    this.mapAuthFailed = !!error || !success;
-    if (this.mapAuthFailed) {
-      this.mapReady = false;
-      this.mapErrorMessage = '腾讯地图鉴权失败：' + (detail.length > 0 ? detail : '服务器未返回错误详情');
-    }
   }
   private selectedRecord(): Observation | undefined { return ObservationService.findById(this.records, this.selectedRecordId); }
   private beginNewRecord(speciesId: string = 'egret', keepPhotos: boolean = false): void {
@@ -1541,14 +1441,68 @@ struct Index {
           else if (this.page === 'record') this.Record()
           else if (this.page === 'observationDetail') this.ObservationDetail()
           else if (this.page === 'journalEditor') this.JournalEditor()
-          else if (this.page === 'bird') this.BirdDetail()
-          else if (this.page === 'stats') this.Stats()
+          else if (this.page === 'bird') BirdDetailView({
+            species: this.selectedBirdSpecies(),
+            image: this.selectedBirdSpecies().imageUrl !== undefined && this.selectedBirdSpecies().imageUrl!.length > 0 ? this.selectedBirdSpecies().imageUrl! : this.speciesImage(this.speciesId),
+            detailMode: $detailMode,
+            onBack: () => this.page = '',
+            onNewObservation: (id: string) => this.beginNewRecord(id)
+          })
+          else if (this.page === 'stats') StatsView({ records: this.records, selectedYear: $selectedYear, birdName: (id: string) => this.birdName(id), onBack: () => this.page = '', onNewObservation: () => this.beginNewRecord() })
           else if (this.page === 'shop') this.Shop()
-          else if (this.page === 'publish') this.Publish()
-          else if (this.page === 'post') this.PostDetail()
-          else if (this.page === 'observations') this.Observations()
+          else if (this.page === 'publish') PublishView({
+            mode: $publishMode,
+            title: $publishTitle,
+            body: $publishBody,
+            behavior: $behavior,
+            postVisibility: $publishVisibility,
+            photoUri: this.publishPhotoUri,
+            speciesName: this.birdName(this.speciesId),
+            draftCount: this.communityDrafts.length,
+            hasActiveDraft: this.activePostDraftId.length > 0,
+            publishing: this.publishing,
+            onBack: () => this.page = '',
+            onRestoreDraft: () => this.restoreLatestPostDraft(),
+            onPickPhoto: () => this.pickPublishPhoto(),
+            onPickSpecies: () => { this.pickerReturn = 'publish'; this.page = 'speciesPicker' },
+            onSaveDraft: () => { this.savePostDraft(); this.page = ''; this.tab = 'community' },
+            onPublish: () => this.publishPost()
+          })
+          else if (this.page === 'post') PostDetailView({
+            post: this.selectedPost(),
+            comments: this.postComments,
+            speciesName: this.selectedPost() === undefined ? '' : this.birdName(this.selectedPost()!.speciesId),
+            scientificName: this.selectedPost() === undefined ? '' : this.birdScientificName(this.selectedPost()!.speciesId),
+            mediaUrl: this.selectedPost() === undefined ? '' : this.api().mediaUrl(this.selectedPost()!.imageUrl),
+            commentDraft: $commentDraft,
+            onBack: () => this.page = '',
+            onReturnCommunity: () => { this.page = ''; this.tab = 'community' },
+            onLike: () => this.togglePostReaction('like'),
+            onFavorite: () => this.togglePostReaction('favorite'),
+            onSubmitComment: () => this.submitComment()
+          })
+          else if (this.page === 'observations') ObservationsView({
+            filter: $observationFilter,
+            placeFilter: $selectedPlaceFilter,
+            observations: this.visibleObservations(),
+            birdNames: this.visibleObservations().map((item: Observation) => this.birdName(item.speciesId)),
+            birdImages: this.visibleObservations().map((item: Observation) => this.speciesImage(item.speciesId)),
+            onBack: () => this.page = '',
+            onSelectObservation: (id: string) => { this.selectedRecordId = id; this.page = 'observationDetail' },
+            onNewObservation: () => this.beginNewRecord()
+          })
           else if (this.page === 'migration') MigrationPlanningView({ onBack: () => this.page = '' })
-          else if (this.page === 'map') this.MapPage()
+          else if (this.page === 'map') MapView({
+            records: this.records,
+            privacyLoaded: this.mapPrivacyLoaded,
+            privacyAgreed: this.mapPrivacyAgreed,
+            birdName: (id: string) => this.birdName(id),
+            onBack: () => this.page = '',
+            onRequestPrivacy: () => this.requestMapPrivacyConsent(),
+            onOpenObservations: (placeName: string) => { this.selectedPlaceFilter = placeName; this.page = 'observations' },
+            onNewObservation: () => this.beginNewRecord(),
+            onNotice: (message: string) => this.toast = message
+          })
           else if (this.page === 'profileEdit') ProfileEditView({ displayName: $displayName, bio: $bio, avatarUri: $avatarUri, profileSaving: this.profileSaving, onBack: () => this.page = '', onPickAvatar: () => this.pickAvatar(), onSave: () => this.saveProfile() })
           else if (this.page === 'settings') SettingsView({
             backendUrl: $backendUrl,
@@ -1718,52 +1672,6 @@ struct Index {
       })
   }
 
-  @Builder BirdDetail() {
-    Column() { Row() { this.Icon($r('app.media.ic_back'), '返回', () => this.page = ''); Text('鸟种档案').fontSize(16).fontWeight(FontWeight.Medium).fontColor(INK).layoutWeight(1); Stack().width(44).height(44) }.height(56).padding({ left: 12, right: 12 }).backgroundColor(WHITE)
-      Scroll() { Column({ space: 0 }) { Image(this.selectedBirdSpecies().imageUrl !== undefined && this.selectedBirdSpecies().imageUrl!.length > 0 ? this.selectedBirdSpecies().imageUrl! : this.speciesImage(this.speciesId)).alt($r('app.media.background')).width('100%').height(300).objectFit(ImageFit.Cover)
-        Column({ space: 15 }) { Row() { Column({ space: 3 }) { Text(this.birdName(this.speciesId)).fontFamily(SERIF).fontSize(29).fontWeight(FontWeight.Medium).fontColor(INK); Text(this.birdScientificName(this.speciesId)).fontFamily(SERIF).fontSize(14).fontStyle(FontStyle.Italic).fontColor(MUTED) }.alignItems(HorizontalAlign.Start).layoutWeight(1); Text(this.selectedBirdSpecies().category).fontSize(12).fontColor(GREEN).padding(8).backgroundColor(GREEN_SOFT).borderRadius(16) }
-          if (this.speciesId === 'egret') {
-            Text('中型涉禽 · 常见留鸟 · 国家“三有”保护动物').fontSize(12).fontColor(MUTED).width('100%')
-            Row({ space: 20 }) { this.DetailTab('辨识'); this.DetailTab('声音'); this.DetailTab('习性'); this.DetailTab('分布') }
-            if (this.detailMode === '辨识') { Text('关键辨识特征').fontFamily(SERIF).fontSize(19).fontWeight(FontWeight.Medium).fontColor(INK).width('100%'); this.Numbered('01', '黑色细长嘴', '嘴细直、全黑，与大白鹭的黄色嘴明显不同。'); this.Numbered('02', '黑腿与鲜黄脚趾', '飞行或浅水行走时，黄色脚趾是最醒目的识别点。'); this.Numbered('03', '枕后两枚饰羽', '繁殖期成鸟枕后生出两枚狭长羽冠。'); Image($r('app.media.egret_feet')).width('100%').height(150).objectFit(ImageFit.Cover).borderRadius(8); Text('相似鸟种').fontFamily(SERIF).fontSize(19).fontWeight(FontWeight.Medium).fontColor(INK).width('100%'); this.Candidate('大白鹭', '体型更大 · 黄嘴'); this.Candidate('黄嘴白鹭', '黄嘴 · 海岸湿地') }
-            else if (this.detailMode === '声音') { Text('鸣声记录').fontFamily(SERIF).fontSize(19).fontColor(INK).width('100%'); this.AudioPlayer(); Text('通常沉默，受惊或飞行时会发出低沉而粗哑的“嘎”声。').fontSize(14).fontColor(MUTED).lineHeight(22) }
-            else if (this.detailMode === '习性') { Text('生活习性').fontFamily(SERIF).fontSize(19).fontColor(INK).width('100%'); Text('单独或成小群活动于浅水区，以小鱼、虾、蛙及水生昆虫为食。觅食时缓慢涉水，也会快速追逐猎物。').fontSize(14).fontColor(MUTED).lineHeight(23); Row({ space: 8 }) { this.Feature('浅水觅食'); this.Feature('集群繁殖'); this.Feature('晨昏活跃') } }
-            else { Text('分布与季节').fontFamily(SERIF).fontSize(19).fontColor(INK).width('100%'); Image($r('app.media.editor_map')).width('100%').height(180).objectFit(ImageFit.Cover).borderRadius(8); Text('广泛分布于中国大部分地区的河流、湖泊、湿地和沿海滩涂。北京春夏秋较常见。').fontSize(14).fontColor(MUTED).lineHeight(22) }
-          } else {
-            Text(this.selectedBirdSpecies().description).fontSize(14).fontColor(INK).lineHeight(23).width('100%')
-            if (this.selectedBirdSpecies().features !== undefined && this.selectedBirdSpecies().features!.length > 0) {
-              Text('关键辨识特征').fontFamily(SERIF).fontSize(19).fontWeight(FontWeight.Medium).fontColor(INK).width('100%')
-              ForEach(this.selectedBirdSpecies().features!, (feature: string, index: number) => { this.Numbered((index + 1).toString().padStart(2, '0'), feature, '请结合照片中的羽色、体型和活动环境综合确认。') }, (feature: string) => feature)
-            }
-            this.SettingRow('分类', this.selectedBirdSpecies().category)
-            this.SettingRow('记录地区', this.selectedBirdSpecies().regions.join(' · '))
-            if (this.selectedBirdSpecies().dataSource === 'GBIF') { Text('数据来源：GBIF · 分类与出现记录以来源页为准').fontSize(12).fontColor(GREEN).width('100%') }
-          }
-          if (this.selectedBirdSpecies().imageCreator !== undefined && this.selectedBirdSpecies().imageCreator!.length > 0) { Text('图片：' + this.selectedBirdSpecies().imageCreator! + ' · ' + this.selectedBirdSpecies().imageLicense! + ' · 来源详情已保存在许可清单').fontSize(11).fontColor(MUTED).width('100%') }
-          this.Privacy()
-        }.padding({ left: 16, right: 16, top: 18, bottom: 24 }).backgroundColor(BG).borderRadius({ topLeft: 16, topRight: 16 }).margin({ top: -14 })
-      } }.layoutWeight(1).scrollBar(BarState.Off)
-      Button('＋  记录我看到了').width('92%').height(48).backgroundColor(GREEN).borderRadius(8).margin({ top: 8, bottom: 10 }).onClick(() => this.beginNewRecord(this.speciesId))
-    }.width('100%').height('100%').backgroundColor(BG)
-  }
-
-  @Builder Stats() {
-    Column() { this.Header('年度统计'); Scroll() { Column({ space: 20 }) {
-      Row() { Column({ space: 3 }) { Text(this.selectedYear.toString() + ' · 我的观鸟年').fontFamily(SERIF).fontSize(22).fontColor(INK); Text('每一次相遇，都在这里留下坐标').fontSize(12).fontColor(MUTED) }.alignItems(HorizontalAlign.Start).layoutWeight(1); Row({ space: 8 }) { ForEach(ObservationService.years(this.records), (year: number) => { Text(year.toString()).fontSize(13).fontColor(this.selectedYear === year ? WHITE : GREEN).padding({ left: 12, right: 12, top: 8, bottom: 8 }).backgroundColor(this.selectedYear === year ? GREEN : GREEN_SOFT).borderRadius(8).onClick(() => this.selectedYear = year) }, (year: number) => year.toString()) } }
-      Grid() { this.Metric('观察次数', this.selectedYearStats().observations.toString()); this.Metric('记录鸟种', this.selectedYearStats().speciesCount.toString()); this.Metric('地点足迹', this.selectedYearStats().placeCount.toString()); this.Metric('鸟只总数', this.selectedYearStats().birdCount.toString()) }.columnsTemplate('1fr 1fr').columnsGap(10).rowsGap(10)
-      Text('全年观察趋势').fontFamily(SERIF).fontSize(19).fontWeight(FontWeight.Medium).fontColor(INK).width('100%')
-      Row({ space: 4 }) { ForEach(this.selectedMonthly(), (item: MonthlyObservationStat) => { Column({ space: 5 }) { Text(item.count > 0 ? item.count.toString() : '').fontSize(9).fontColor(GREEN).height(14); Column().width(16).height(Math.max(4, item.count / this.selectedYearMaxMonth() * 104)).backgroundColor(item.count > 0 ? GREEN : BORDER).borderRadius({ topLeft: 4, topRight: 4 }); Text(item.month.toString() + '月').fontSize(8).fontColor(MUTED) }.layoutWeight(1).height(145).justifyContent(FlexAlign.End).alignItems(HorizontalAlign.Center) }, (item: MonthlyObservationStat) => item.month.toString()) }.height(174).padding({ left: 10, right: 10, top: 12, bottom: 10 }).alignItems(VerticalAlign.Bottom).backgroundColor(WHITE).border({ width: 1, color: BORDER }).borderRadius(8)
-      Text('常遇鸟种').fontFamily(SERIF).fontSize(19).fontWeight(FontWeight.Medium).fontColor(INK).width('100%')
-      ForEach(this.selectedSpeciesStats().slice(0, 5), (item: SpeciesObservationStat) => { this.Rank((this.selectedSpeciesStats().indexOf(item) + 1).toString(), this.birdName(item.speciesId), item.count.toString() + ' 次', Math.max(8, Math.round(item.ratio * 100))) }, (item: SpeciesObservationStat) => item.speciesId)
-      if (this.selectedYearStats().species.length === 0) { Text('该年份暂无观察记录').fontSize(14).fontColor(MUTED).padding(16).width('100%').backgroundColor(WHITE).borderRadius(8) }
-      Text('观察地点构成').fontFamily(SERIF).fontSize(19).fontWeight(FontWeight.Medium).fontColor(INK).width('100%')
-      Column({ space: 13 }) { ForEach(this.selectedYearStats().places.slice(0, 4), (item: PlaceObservationStat) => { this.PlaceShare(item.placeName, item.recordCount, Math.round(item.recordCount / this.selectedPlaceTotal() * 100)) }, (item: PlaceObservationStat) => item.placeName) }.padding(14).backgroundColor(WHITE).border({ width: 1, color: BORDER }).borderRadius(8)
-      Text('年度鸟种清单').fontFamily(SERIF).fontSize(19).fontWeight(FontWeight.Medium).fontColor(INK).width('100%')
-      Column({ space: 0 }) { ForEach(this.selectedYearStats().species, (item: SpeciesObservationStat, index: number) => { this.SpeciesTimeline(index + 1, this.birdName(item.speciesId), item.count) }, (item: SpeciesObservationStat) => item.speciesId) }.backgroundColor(WHITE).border({ width: 1, color: BORDER }).borderRadius(8)
-      if (this.selectedYearStats().observations === 0) { Button('＋ 新建观察').width('100%').height(48).backgroundColor(GREEN).borderRadius(8).onClick(() => this.beginNewRecord()) }
-    }.padding({ left: 16, right: 16, bottom: 28 }) }.layoutWeight(1) }.backgroundColor(BG)
-  }
-
   @Builder Shop() {
     Column() { this.Header('创作素材'); Scroll() { Column({ space: 16 }) {
       Row({ space: 24 }) {
@@ -1773,41 +1681,6 @@ struct Index {
       if (this.shopMode === '数字素材') { Stack({ alignContent: Alignment.BottomStart }) { Image($r('app.media.shop_feature')).width('100%').height(220).objectFit(ImageFit.Cover).borderRadius(8); Column({ space: 4 }) { Text('湿地博物志 · 创作套装').fontFamily(SERIF).fontSize(20).fontColor(WHITE); Text('本地模板、贴纸与字体素材').fontSize(12).fontColor(WHITE) }.padding(14).width('100%').backgroundColor('#771C241F') }.onClick(() => this.page = 'product'); Grid() { this.Product('野外观察单页模板', '本地素材', $r('app.media.shop_template')); this.Product('东亚涉禽贴纸组', '本地素材', $r('app.media.shop_stickers')); this.Product('自然志衬线字体', '本地素材', $r('app.media.journal_herons')); this.Product('湿画法水彩笔刷', '规划中', $r('app.media.shop_feature')) }.columnsTemplate('1fr 1fr').columnsGap(10).rowsGap(12) }
       else { Image($r('app.media.journal_waterbirds')).width('100%').height(260).objectFit(ImageFit.Cover).borderRadius(8); Column({ space: 5 }) { Text('实体自然手账 · 规划中').fontFamily(SERIF).fontSize(18).fontColor(INK); Text('当前课程原型不包含实体商品、支付或到货提醒。').fontSize(13).fontColor(MUTED) }.padding(16).width('100%').alignItems(HorizontalAlign.Start).backgroundColor(WHITE).border({ width: 1, color: BORDER }).borderRadius(8) }
     }.padding({ left: 16, right: 16, bottom: 28 }) }.layoutWeight(1) }.backgroundColor(BG)
-  }
-
-  @Builder Publish() {
-    Column() { this.Header('发布'); Scroll() { Column({ space: 15 }) {
-      Row({ space: 22 }) {
-        Text('照片动态').fontSize(15).fontWeight(this.publishMode === '照片动态' ? FontWeight.Bold : FontWeight.Regular).fontColor(this.publishMode === '照片动态' ? GREEN : MUTED).height(36).padding({ bottom: 7 }).border({ width: { bottom: this.publishMode === '照片动态' ? 2 : 0 }, color: GREEN }).onClick(() => this.publishMode = '照片动态')
-        Text('手账作品').fontSize(15).fontWeight(this.publishMode === '手账作品' ? FontWeight.Bold : FontWeight.Regular).fontColor(this.publishMode === '手账作品' ? GREEN : MUTED).height(36).padding({ bottom: 7 }).border({ width: { bottom: this.publishMode === '手账作品' ? 2 : 0 }, color: GREEN }).onClick(() => this.publishMode = '手账作品')
-      }
-      if (this.communityDrafts.length > 0 && this.activePostDraftId.length === 0) { Row() { Text('本机有 ' + this.communityDrafts.length.toString() + ' 篇未发送草稿').fontSize(12).fontColor(AMBER).layoutWeight(1); Text('恢复最近一篇 ›').fontSize(12).fontColor(GREEN).onClick(() => this.restoreLatestPostDraft()) }.padding(12).backgroundColor('#FFF5D8').borderRadius(8) }
-      Row({ space: 10 }) { Image(this.publishPhotoUri.length > 0 ? this.publishPhotoUri : (this.publishMode === '照片动态' ? $r('app.media.observation_egret') : $r('app.media.journal_waterbirds'))).width(104).height(104).objectFit(ImageFit.Contain).backgroundColor('#EEF1ED').borderRadius(8); Text('＋').fontSize(28).fontColor(MUTED).width(104).height(104).textAlign(TextAlign.Center).backgroundColor(WHITE).border({ width: 1, color: BORDER }).borderRadius(8).onClick(() => this.pickPublishPhoto()) }
-      TextInput({ text: this.publishTitle, placeholder: '给这次相遇写个标题' }).height(48).fontSize(17).fontFamily(SERIF).fontColor(INK).backgroundColor(WHITE).border({ width: 1, color: BORDER }).borderRadius(8).onChange((value: string) => this.publishTitle = value)
-      TextArea({ text: this.publishBody, placeholder: '分享观察过程、鸟的行为和当时的感受……' }).height(150).fontColor(INK).backgroundColor(WHITE).border({ width: 1, color: BORDER }).borderRadius(8).onChange((value: string) => this.publishBody = value)
-      this.Label('观察行为'); Row({ space: 8 }) { this.BehaviorChip('觅食'); this.BehaviorChip('涉水'); this.BehaviorChip('飞行'); this.BehaviorChip('休息') }
-      this.SettingAction('鸟种', this.birdName(this.speciesId) + '  ›', () => { this.pickerReturn = 'publish'; this.page = 'speciesPicker' }); this.SettingAction('可见范围', this.publishVisibility + '  ›', () => this.publishVisibility = this.publishVisibility === '所有人' ? '仅自己' : '所有人'); this.Privacy()
-    }.padding({ left: 16, right: 16, bottom: 24 }) }.layoutWeight(1)
-      Row({ space: 10 }) { Button('存草稿').layoutWeight(1).height(48).fontColor(INK).backgroundColor(WHITE).border({ width: 1, color: BORDER }).borderRadius(8).onClick(() => { this.savePostDraft(); this.page = ''; this.tab = 'community' }); Button(this.publishing ? '发布中…' : '发布').enabled(!this.publishing).layoutWeight(2).height(48).backgroundColor(GREEN).borderRadius(8).onClick(() => this.publishPost()) }.padding(12).backgroundColor(WHITE)
-    }.backgroundColor(BG)
-  }
-
-  @Builder PostDetail() {
-    if (this.selectedPost() === undefined) {
-      Column({ space: 12 }) { this.Header('社区详情'); Text('帖子不存在或缓存已失效').fontSize(16).fontColor(MUTED); Button('返回社区').onClick(() => { this.page = ''; this.tab = 'community' }) }.width('100%').height('100%').backgroundColor(BG)
-    } else {
-      Column() { this.Header('观察札记'); Scroll() { Column({ space: 14 }) {
-        Row({ space: 10 }) { Image($r('app.media.community_avatar')).width(42).height(42).objectFit(ImageFit.Cover).borderRadius(21); Column({ space: 2 }) { Text(this.selectedPost()!.authorName).fontSize(14).fontWeight(FontWeight.Medium).fontColor(INK); Text(this.formatPostTime(this.selectedPost()!.createdAt) + ' · ' + (this.selectedPost()!.placeName || '未填写地点')).fontSize(11).fontColor(MUTED) }.alignItems(HorizontalAlign.Start).layoutWeight(1); Text(this.selectedPost()!.type === 'journal' ? '手账作品' : '观察动态').fontSize(11).fontColor(GREEN).padding({ left: 9, right: 9, top: 6, bottom: 6 }).backgroundColor(GREEN_SOFT).borderRadius(14) }
-        this.CommunityImage(this.selectedPost()!, 340)
-        Text(this.selectedPost()!.title).fontFamily(SERIF).fontSize(25).fontWeight(FontWeight.Medium).fontColor(INK).width('100%'); Text(this.selectedPost()!.body).fontFamily(SERIF).fontSize(15).fontColor(INK).lineHeight(25).width('100%')
-        this.SettingRow('物种', this.birdName(this.selectedPost()!.speciesId) + ' · ' + this.birdScientificName(this.selectedPost()!.speciesId)); this.SettingRow('行为', this.selectedPost()!.behavior || '未填写'); this.SettingRow('地点', this.selectedPost()!.placeName || '未填写'); this.SettingRow('时间', this.formatPostTime(this.selectedPost()!.createdAt))
-        this.Section('评论', this.postComments.length.toString() + ' 条')
-        if (this.postComments.length === 0) { Text('还没有评论，来写第一条吧').fontSize(13).fontColor(MUTED).padding({ top: 12, bottom: 12 }) }
-        ForEach(this.postComments, (item: PostComment) => { Row({ space: 10 }) { Text(item.authorName.substring(0, 1)).fontSize(14).fontColor(WHITE).width(34).height(34).textAlign(TextAlign.Center).backgroundColor(GREEN).borderRadius(17); Column({ space: 3 }) { Text(item.authorName).fontSize(13).fontWeight(FontWeight.Medium).fontColor(INK); Text(item.body).fontSize(13).fontColor(MUTED).lineHeight(20); Text(this.formatPostTime(item.createdAt)).fontSize(10).fontColor(MUTED) }.alignItems(HorizontalAlign.Start).layoutWeight(1) }.padding(11).backgroundColor(WHITE).borderRadius(8) }, (item: PostComment) => item.id)
-      }.padding({ left: 16, right: 16, bottom: 28 }) }.layoutWeight(1)
-        Row({ space: 12 }) { Text(this.selectedPost()!.liked ? '♥ ' + this.selectedPost()!.likeCount.toString() : '♡ ' + this.selectedPost()!.likeCount.toString()).fontColor(this.selectedPost()!.liked ? RED : MUTED).onClick(() => this.togglePostReaction('like')); Text(this.selectedPost()!.favorited ? '★' : '☆').fontColor(this.selectedPost()!.favorited ? AMBER : MUTED).onClick(() => this.togglePostReaction('favorite')); TextInput({ text: this.commentDraft, placeholder: '写评论…' }).fontColor(INK).layoutWeight(1).height(40).backgroundColor(BG).borderRadius(20).onChange((value: string) => this.commentDraft = value); Button('发送').height(40).fontSize(12).backgroundColor(GREEN).borderRadius(20).onClick(() => this.submitComment()) }.padding(10).backgroundColor(WHITE).border({ width: { top: 1 }, color: BORDER })
-      }.backgroundColor(BG)
-    }
   }
 
   @Builder ObservationDetail() {
@@ -1831,47 +1704,6 @@ struct Index {
     Stack() { Column({ space: 14 }) { Text('删除这条观察？').fontFamily(SERIF).fontSize(20).fontColor(INK); Text('删除后只会移除 Birdfolio 中的记录，系统相册中的原图不会被删除。').fontSize(13).fontColor(MUTED).lineHeight(20); Row({ space: 10 }) { Button('取消').layoutWeight(1).height(44).fontColor(INK).backgroundColor(WHITE).border({ width: 1, color: BORDER }).borderRadius(8).onClick(() => this.confirmDelete = false); Button('确认删除').layoutWeight(1).height(44).fontColor(WHITE).backgroundColor(RED).borderRadius(8).onClick(() => this.removeSelectedRecord()) } }.padding(20).width('88%').backgroundColor(WHITE).borderRadius(16).shadow({ radius: 18, color: '#33000000', offsetY: 6 }) }.width('100%').height('100%').backgroundColor('#66000000').alignContent(Alignment.Center)
   }
 
-  @Builder Observations() {
-    Column() { this.Header('全部观察'); Scroll() { Column({ space: 12 }) {
-      Row({ space: 8 }) { this.ObservationChip('全部'); this.ObservationChip('本月'); this.ObservationChip('有照片') }
-      if (this.selectedPlaceFilter.length > 0) { Row() { Text('地点：' + this.selectedPlaceFilter).fontSize(13).fontColor(GREEN).layoutWeight(1); Text('清除筛选').fontSize(12).fontColor(GREEN).onClick(() => this.selectedPlaceFilter = '') } }
-      Row() { Text(this.visibleObservations().length.toString() + ' 次观察').fontFamily(SERIF).fontSize(20).fontColor(INK).layoutWeight(1); Text('按时间排序').fontSize(12).fontColor(MUTED) }
-      ForEach(this.visibleObservations(), (item: Observation) => { this.RecordRow(item) }, (item: Observation) => item.id)
-      Button('＋  新建观察').width('100%').height(48).backgroundColor(GREEN).borderRadius(8).onClick(() => this.beginNewRecord())
-    }.padding({ left: 16, right: 16, bottom: 28 }) }.layoutWeight(1) }.width('100%').height('100%').backgroundColor(BG)
-  }
-
-  @Builder MapPage() {
-    Column() { this.Header('地图足迹');
-      if (this.mapPlaces().length === 0) { Column({ space: 12 }) { Text('还没有观察地点').fontFamily(SERIF).fontSize(22).fontColor(INK); Text('完成一次观察记录后，地点会显示在这里。').fontSize(14).fontColor(MUTED); Button('＋ 新建观察').height(46).backgroundColor(GREEN).borderRadius(8).onClick(() => this.beginNewRecord()) }.justifyContent(FlexAlign.Center).layoutWeight(1).width('100%') }
-      else { Stack({ alignContent: Alignment.BottomStart }) {
-          if (MapService.isConfigured() && this.mapPrivacyLoaded && this.mapPrivacyAgreed && !this.mapAuthFailed) {
-            MapComponent({ onReady: (error: Object, controller: MapController) => this.onMapReady(error, controller), onAuthCallback: (error: Object, success: boolean) => this.onMapAuth(error, success) }).width('100%').height('100%')
-          } else {
-            Image($r('app.media.editor_map')).width('100%').height('100%').objectFit(ImageFit.Cover)
-            if (!this.mapPrivacyLoaded) {
-              Text('正在读取地图设置…').fontSize(12).fontColor(INK).padding(10).backgroundColor('#EEFFFFFF').borderRadius(8).position({ x: 12, y: 12 }).zIndex(10)
-            } else if (!this.mapPrivacyAgreed) {
-              Button('启用腾讯在线地图').height(40).fontColor(WHITE).backgroundColor(GREEN).borderRadius(8).position({ x: 12, y: 12 }).zIndex(10).onClick(() => this.requestMapPrivacyConsent())
-            } else {
-              Text(!MapService.isConfigured() ? '未配置腾讯地图 Key，当前为静态地图' : this.mapErrorMessage).fontSize(12).fontColor(INK).padding(10).backgroundColor('#EEFFFFFF').borderRadius(8).position({ x: 12, y: 12 }).zIndex(10)
-            }
-          }
-          if (MapService.isConfigured() && this.mapPrivacyAgreed && !this.mapAuthFailed && !this.mapReady) {
-            Text('腾讯地图加载中…').fontSize(12).fontColor(INK).padding(10).backgroundColor('#EEFFFFFF').borderRadius(8).position({ x: 12, y: 12 }).zIndex(10)
-          }
-          if (this.mapReady && this.selectedMapPlaceName.length > 0) {
-            Row({ space: 9 }) { Text('●').fontSize(18).fontColor(GREEN); Column({ space: 2 }) { Text('已定位到 ' + this.selectedMapPlaceName).fontSize(14).fontWeight(FontWeight.Medium).fontColor(INK); Text(this.selectedMapPlaceCount.toString() + ' 次观察 · ' + this.selectedMapSpeciesSummary).fontSize(11).fontColor(MUTED); Text(this.selectedMapLatest).fontSize(10).fontColor(MUTED) }.alignItems(HorizontalAlign.Start).layoutWeight(1); Text('查看记录 ›').fontSize(11).fontColor(GREEN) }.padding({ left: 12, right: 14, top: 9, bottom: 9 }).backgroundColor('#F5FFFFFF').borderRadius(8).shadow({ radius: 8, color: '#22000000', offsetY: 3 }).position({ x: 12, y: 12 }).zIndex(12).onClick(() => { this.selectedPlaceFilter = this.selectedMapPlaceName; this.page = 'observations' })
-          }
-          if (!this.mapReady || this.mapAuthFailed) {
-            ForEach(this.mapValidPlaces(), (item: PlaceObservationStat, index: number) => { Text(item.recordCount.toString()).fontSize(12).fontWeight(FontWeight.Bold).fontColor(WHITE).width(38).height(38).textAlign(TextAlign.Center).backgroundColor(GREEN).borderRadius(19).position({ x: 30 + (index * 67) % 250, y: 70 + (index * 83) % 210 }).onClick(() => this.focusMapPlace(item)) }, (item: PlaceObservationStat) => item.placeName)
-          }
-        if (this.mapValidPlaces().length === 0) { Text('暂无有效坐标，以下显示地点列表').fontSize(12).fontColor(INK).padding(10).margin(12).backgroundColor('#EEFFFFFF').borderRadius(8) }
-        Column({ space: 10 }) { Row() { Text(this.mapPlaces().length.toString() + ' 处观察地点').fontFamily(SERIF).fontSize(18).fontColor(INK).layoutWeight(1); Text('全部记录  ›').fontSize(12).fontColor(GREEN).onClick(() => { this.selectedPlaceFilter = ''; this.page = 'observations' }) }; ForEach(this.mapPlaces().slice(0, 4), (item: PlaceObservationStat) => { Row() { Column({ space: 3 }) { Text(item.placeName).fontSize(15).fontWeight(this.selectedMapPlaceName === item.placeName ? FontWeight.Medium : FontWeight.Regular).fontColor(this.selectedMapPlaceName === item.placeName ? GREEN : INK); Text(item.recordCount.toString() + ' 次观察 · ' + item.birdCount.toString() + ' 只').fontSize(12).fontColor(MUTED) }.alignItems(HorizontalAlign.Start).layoutWeight(1); Text(this.selectedMapPlaceName === item.placeName ? '定位中' : '›').fontSize(this.selectedMapPlaceName === item.placeName ? 11 : 20).fontColor(GREEN) }.padding(11).backgroundColor(this.selectedMapPlaceName === item.placeName ? GREEN_SOFT : WHITE).border({ width: 1, color: this.selectedMapPlaceName === item.placeName ? GREEN : BORDER }).borderRadius(8).onClick(() => this.focusMapPlace(item)) }, (item: PlaceObservationStat) => item.placeName) }.padding(16).width('100%').backgroundColor(WHITE).borderRadius({ topLeft: 16, topRight: 16 })
-      }.layoutWeight(1) }
-    }.width('100%').height('100%').backgroundColor(BG)
-  }
-
   @Builder SpeciesPicker() {
     Column() { this.SubHeader('选择鸟种', () => this.page = this.pickerReturn); Column({ space: 12 }) {
       TextInput({ text: this.keyword, placeholder: '搜索中文名、别名或学名' }).height(48).backgroundColor(WHITE).border({ width: 1, color: BORDER }).borderRadius(8).onChange((v: string) => this.keyword = v)
@@ -1880,39 +1712,11 @@ struct Index {
   }
 
   @Builder Header(title: string) { Row() { this.Icon($r('app.media.ic_back'), '返回', () => this.page = ''); Text(title).fontSize(18).fontWeight(FontWeight.Medium).fontColor(INK).textAlign(TextAlign.Center).layoutWeight(1); Stack().width(44).height(44) }.width('100%').height(58).padding({ left: 12, right: 12 }).backgroundColor(WHITE).border({ width: { bottom: 1 }, color: BORDER }) }
-  @Builder DetailField(label: string, value: string) { Row() { Text(label).fontSize(13).fontColor(MUTED).layoutWeight(1); Text(value).fontSize(14).fontColor(INK) }.padding(14).width('100%').backgroundColor(WHITE).border({ width: 1, color: BORDER }).borderRadius(8) }
   @Builder SubHeader(title: string, fn: () => void) { Row() { this.Icon($r('app.media.ic_back'), '返回', fn); Text(title).fontSize(18).fontWeight(FontWeight.Medium).fontColor(INK).textAlign(TextAlign.Center).layoutWeight(1); Stack().width(44).height(44) }.width('100%').height(58).padding({ left: 12, right: 12 }).backgroundColor(WHITE).border({ width: { bottom: 1 }, color: BORDER }) }
   @Builder Icon(icon: Resource, label: string, fn: () => void) { Stack() { Image(icon).width(24).height(24).objectFit(ImageFit.Contain) }.width(44).height(44).borderRadius(8).onClick(() => fn()).accessibilityText(label) }
-  @Builder Section(a: string, b: string) { Row() { Text(a).fontFamily(SERIF).fontSize(18).fontWeight(FontWeight.Medium).fontColor(INK).layoutWeight(1); Text(b).fontSize(13).fontColor(GREEN) }.width('100%') }
-  @Builder RecordRow(x: Observation) { ObservationCard({ item: x, birdName: this.birdName(x.speciesId), image: this.speciesImage(x.speciesId), onSelect: () => { this.selectedRecordId = x.id; this.page = 'observationDetail' } }) }
   @Builder Cover(t: string, c: string) { GridItem() { Column({ space: 9 }) { Image($r('app.media.bird_hero')).width('100%').height(148).objectFit(ImageFit.Cover).borderRadius(4); Text(t).fontSize(14).fontWeight(FontWeight.Medium).fontColor(INK).width('100%') }.padding(10).backgroundColor(c).borderRadius(8).onClick(() => this.createJournal()) } }
-  @Builder CommunityImage(post: CommunityPost, height: number) {
-    if (post.imageUrl === '/seed/community_egret' || post.imageUrl.length === 0 && post.type === 'photo') { Image($r('app.media.community_egret')).width('100%').height(height).objectFit(ImageFit.Contain).backgroundColor('#EEF1ED').borderRadius(6) }
-    else if (post.imageUrl === '/seed/community_journal' || post.imageUrl.length === 0) { Image($r('app.media.community_journal')).width('100%').height(height).objectFit(ImageFit.Contain).backgroundColor('#EEF1ED').borderRadius(6) }
-    else { Image(this.api().mediaUrl(post.imageUrl)).width('100%').height(height).objectFit(ImageFit.Contain).backgroundColor('#EEF1ED').borderRadius(6) }
-  }
-  @Builder Tab(t: string, on: boolean) { Text(t).fontSize(15).fontWeight(on ? FontWeight.Bold : FontWeight.Regular).fontColor(on ? GREEN : MUTED).padding({ bottom: 7 }).border({ width: { bottom: on ? 2 : 0 }, color: GREEN }) }
-  @Builder Chip(t: string, on: boolean) { Text(t).fontSize(13).fontColor(on ? GREEN : MUTED).padding({ left: 12, right: 12, top: 8, bottom: 8 }).backgroundColor(on ? GREEN_SOFT : WHITE).border({ width: 1, color: on ? GREEN : BORDER }).borderRadius(18) }
   @Builder ShopChip(t: string) { Text(t).fontSize(13).fontColor(this.shopCategory === t ? GREEN : MUTED).padding({ left: 12, right: 12, top: 8, bottom: 8 }).backgroundColor(this.shopCategory === t ? GREEN_SOFT : WHITE).border({ width: 1, color: this.shopCategory === t ? GREEN : BORDER }).borderRadius(18).onClick(() => this.shopCategory = t) }
-  @Builder BehaviorChip(t: string) { Text(t).fontSize(13).fontColor(this.behavior === t ? GREEN : MUTED).padding({ left: 12, right: 12, top: 8, bottom: 8 }).backgroundColor(this.behavior === t ? GREEN_SOFT : WHITE).border({ width: 1, color: this.behavior === t ? GREEN : BORDER }).borderRadius(18).onClick(() => this.behavior = t) }
-  @Builder ObservationChip(t: string) { Text(t).fontSize(13).fontColor(this.observationFilter === t ? GREEN : MUTED).padding({ left: 12, right: 12, top: 8, bottom: 8 }).backgroundColor(this.observationFilter === t ? GREEN_SOFT : WHITE).border({ width: 1, color: this.observationFilter === t ? GREEN : BORDER }).borderRadius(18).onClick(() => this.observationFilter = t) }
-  @Builder DetailTab(t: string) { Text(t).fontSize(15).fontWeight(this.detailMode === t ? FontWeight.Bold : FontWeight.Regular).fontColor(this.detailMode === t ? GREEN : MUTED).height(36).padding({ bottom: 7 }).border({ width: { bottom: this.detailMode === t ? 2 : 0 }, color: GREEN }).onClick(() => this.detailMode = t) }
-  @Builder Feature(t: string) { Text(t).fontSize(12).fontColor(GREEN).padding({ left: 10, right: 10, top: 8, bottom: 8 }).backgroundColor(GREEN_SOFT).borderRadius(18) }
-  @Builder Candidate(n: string, s: string) { Row({ space: 10 }) { Image(n === '大白鹭' ? $r('app.media.great_egret') : $r('app.media.chinese_egret')).width(52).height(52).objectFit(ImageFit.Cover).borderRadius(6); Text(n).fontFamily(SERIF).fontSize(15).fontWeight(FontWeight.Medium).fontColor(INK).layoutWeight(1); Text(s).fontSize(12).fontColor(MUTED) }.padding(10).backgroundColor(WHITE).border({ width: 1, color: BORDER }).borderRadius(8) }
-  @Builder Label(t: string) { Text(t).fontSize(13).fontWeight(FontWeight.Medium).fontColor(MUTED).width('100%') }
   @Builder Nav() { Row() { this.NavItem($r('app.media.ic_home'), $r('app.media.ic_home_active'), '首页', 'home'); this.NavItem($r('app.media.ic_book'), $r('app.media.ic_book_active'), '手账', 'journal'); this.NavItem($r('app.media.ic_community'), $r('app.media.ic_community_active'), '社区', 'community'); this.NavItem($r('app.media.ic_search'), $r('app.media.ic_search_active'), '图鉴', 'guide'); this.NavItem($r('app.media.ic_user'), $r('app.media.ic_user_active'), '我的', 'mine') }.width('100%').height(64).padding({ left: 16, right: 16, top: 4, bottom: 4 }).justifyContent(FlexAlign.SpaceAround).backgroundColor(WHITE).border({ width: { top: 1 }, color: BORDER }) }
   @Builder NavItem(icon: Resource, activeIcon: Resource, t: string, id: string) { Column({ space: 2 }) { Image(this.tab === id ? activeIcon : icon).width(22).height(22).objectFit(ImageFit.Contain); Text(t).fontSize(11).fontWeight(this.tab === id ? FontWeight.Medium : FontWeight.Regular).fontColor(this.tab === id ? GREEN : MUTED) }.justifyContent(FlexAlign.Center).width(56).height(52).backgroundColor(this.tab === id ? GREEN_SOFT : '#00000000').borderRadius(8).onClick(() => this.tab = id) }
-  @Builder Metric(a: string, b: string) { Row({ space: 12 }) { Text(b).fontFamily(SERIF).fontSize(27).fontWeight(FontWeight.Medium).fontColor(GREEN).width(44); Column({ space: 3 }) { Text(a).fontSize(13).fontColor(INK); Text('本年度').fontSize(10).fontColor(MUTED) }.alignItems(HorizontalAlign.Start) }.height(78).padding({ left: 14, right: 12 }).backgroundColor(WHITE).border({ width: 1, color: BORDER }).borderRadius(8) }
-  @Builder Privacy() { Row({ space: 10 }) { Text('!').fontSize(13).fontWeight(FontWeight.Bold).fontColor(RED); Text('珍稀鸟类及巢址坐标已开启模糊保护，仅展示区县级概览').fontSize(12).fontColor(MUTED).lineHeight(18).layoutWeight(1) }.padding(12).backgroundColor(WHITE).border({ width: { left: 3, top: 1, right: 1, bottom: 1 }, color: RED }).borderRadius(8) }
-  @Builder Numbered(no: string, title: string, body: string) { Row({ space: 12 }) { Text(no).fontFamily(SERIF).fontSize(13).fontColor(GREEN).width(28); Column({ space: 3 }) { Text(title).fontSize(15).fontWeight(FontWeight.Medium).fontColor(INK); Text(body).fontSize(13).fontColor(MUTED).lineHeight(19) }.alignItems(HorizontalAlign.Start).layoutWeight(1) }.width('100%') }
-  @Builder AudioPlayer() { Row({ space: 12 }) { Text('音').fontColor(WHITE).width(36).height(36).textAlign(TextAlign.Center).backgroundColor(MUTED).borderRadius(18); Column({ space: 4 }) { Text('音频样本未内置').fontSize(13).fontColor(INK); Text('声音识别与播放功能规划中').fontSize(12).fontColor(MUTED) }.alignItems(HorizontalAlign.Start).layoutWeight(1) }.padding(12).backgroundColor(WHITE).border({ width: 1, color: BORDER }).borderRadius(8) }
-  @Builder Bar(label: string, h: number) { Column({ space: 6 }) { Column().width(22).height(h).backgroundColor(GREEN).borderRadius({ topLeft: 4, topRight: 4 }); Text(label).fontSize(10).fontColor(MUTED) }.layoutWeight(1).justifyContent(FlexAlign.End) }
-  @Builder Rank(no: string, name: string, count: string, w: number) { Row({ space: 12 }) { Text(no).fontFamily(SERIF).fontSize(18).fontColor(GREEN).width(28).height(28).textAlign(TextAlign.Center).backgroundColor(GREEN_SOFT).borderRadius(14); Column({ space: 7 }) { Row() { Text(name).fontSize(15).fontColor(INK).layoutWeight(1); Text(count).fontSize(12).fontColor(MUTED) }; Stack({ alignContent: Alignment.Start }) { Column().width('100%').height(6).backgroundColor('#EDF0EC').borderRadius(3); Column().width(w.toString() + '%').height(6).backgroundColor(GREEN).borderRadius(3) }.width('100%').height(6) }.layoutWeight(1) }.padding(13).backgroundColor(WHITE).border({ width: 1, color: BORDER }).borderRadius(8) }
-  @Builder PlaceShare(name: string, count: number, percent: number) { Column({ space: 7 }) { Row() { Text(name).fontSize(14).fontColor(INK).layoutWeight(1); Text(count.toString() + ' 次 · ' + percent.toString() + '%').fontSize(12).fontColor(MUTED) }; Stack({ alignContent: Alignment.Start }) { Column().width('100%').height(7).backgroundColor('#EDF0EC').borderRadius(4); Column().width(Math.max(6, percent).toString() + '%').height(7).backgroundColor(BLUE).borderRadius(4) }.width('100%').height(7) }.width('100%') }
-  @Builder SpeciesTimeline(no: number, name: string, count: number) { Row({ space: 12 }) { Text(no.toString()).fontSize(11).fontColor(WHITE).width(25).height(25).textAlign(TextAlign.Center).backgroundColor(GREEN).borderRadius(13); Text(name).fontFamily(SERIF).fontSize(15).fontColor(INK).layoutWeight(1); Text(count.toString() + ' 次记录').fontSize(12).fontColor(MUTED) }.height(52).padding({ left: 13, right: 13 }).border({ width: { bottom: 1 }, color: BORDER }) }
-  @Builder Habitat(name: string, value: string, color: string) { Column({ space: 4 }) { Text(value).fontFamily(SERIF).fontSize(20).fontColor(INK); Text(name).fontSize(12).fontColor(MUTED) }.layoutWeight(1).padding(14).backgroundColor(color).borderRadius(8) }
   @Builder Product(name: string, price: string, img: Resource) { GridItem() { Column({ space: 7 }) { Image(img).width('100%').height(130).objectFit(ImageFit.Cover).borderRadius(6); Text(name).fontFamily(SERIF).fontSize(14).fontColor(INK).width('100%').maxLines(2); Text(price).fontSize(13).fontColor(GREEN).width('100%') }.padding(9).backgroundColor(WHITE).border({ width: 1, color: BORDER }).borderRadius(8).onClick(() => this.page = 'product') } }
-  @Builder SettingRow(a: string, b: string) { Row() { Text(a).fontSize(13).fontColor(MUTED); Text(b).fontSize(13).fontColor(INK).layoutWeight(1).textAlign(TextAlign.End) }.padding(14).backgroundColor(WHITE).border({ width: 1, color: BORDER }).borderRadius(8) }
-  @Builder SettingAction(a: string, b: string, fn: () => void) { Row() { Text(a).fontSize(13).fontColor(MUTED); Text(b).fontSize(13).fontColor(INK).layoutWeight(1).textAlign(TextAlign.End) }.height(48).padding({ left: 14, right: 14 }).backgroundColor(WHITE).border({ width: 1, color: BORDER }).borderRadius(8).onClick(() => fn()) }
-  @Builder ToggleRow(a: string, b: string, value: boolean, fn: (value: boolean) => void) { Row() { Column({ space: 3 }) { Text(a).fontSize(14).fontColor(INK); Text(b).fontSize(12).fontColor(MUTED) }.alignItems(HorizontalAlign.Start).layoutWeight(1); Toggle({ type: ToggleType.Switch, isOn: value }).selectedColor(GREEN).onChange((v: boolean) => fn(v)) }.padding(14).backgroundColor(WHITE).border({ width: 1, color: BORDER }).borderRadius(8) }
 }
