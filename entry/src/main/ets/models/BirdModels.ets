@@ -41,6 +41,8 @@ export interface Observation {
   behaviors?: string[];
   updatedAt?: string;
   locationSource?: 'current' | 'manual' | 'none';
+  photoAssetIds?: string[];
+  localMeta?: LocalEntityMeta;
 }
 
 export interface JournalEntry {
@@ -88,7 +90,28 @@ export interface JournalElement {
   name?: string;
   role?: 'title' | 'meta' | 'photo' | 'observation' | 'decoration' | 'user';
   content: string;
+  assetId?: string;
   style?: JournalElementStyle;
+}
+
+export interface LocalEntityMeta {
+  version: number;
+  updatedAt: number;
+  deletedAt?: number;
+  syncStatus: 'local' | 'pending' | 'synced' | 'conflict';
+}
+
+export interface MediaAsset {
+  id: string;
+  originalUri: string;
+  thumbnailUri: string;
+  previewUri: string;
+  mimeType: string;
+  byteSize: number;
+  width: number;
+  height: number;
+  sha256: string;
+  createdAt: number;
 }
 
 export interface JournalElementStyle {
@@ -233,6 +256,7 @@ export interface PostDraft {
   visibility: string;
   type: 'photo' | 'journal';
   imageUri: string;
+  imageAssetId?: string;
   updatedAt: string;
 }
 

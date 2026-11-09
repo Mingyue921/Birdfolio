@@ -4,6 +4,8 @@ import { ObservationService } from '../main/ets/services/ObservationService';
 import { SyncQueueService } from '../main/ets/services/SyncQueueService';
 import { JournalService } from '../main/ets/services/JournalService';
 import { Observation } from '../main/ets/models/BirdModels';
+import { PersistencePolicy } from '../main/ets/persistence/PersistencePolicy';
+import { MediaAssetService } from '../main/ets/media/MediaAssetService';
 
 export default function localUnitTest() {
   describe('localUnitTest', () => {
@@ -251,6 +253,39 @@ export default function localUnitTest() {
       expect(title?.x).assertEqual(65);
       const emptied = JournalService.deletePage(templated, 0);
       expect(emptied.pages.length).assertEqual(1);
+    });
+    it('normalizesLocalMetadataAndMediaReferences', 0, () => {
+      const fallback = PersistencePolicy.localMeta(undefined, 1000);
+      expect(fallback.version).assertEqual(1);
+      expect(fallback.updatedAt).assertEqual(1000);
+      expect(fallback.syncStatus).assertEqual('local');
+      const ids = PersistencePolicy.uniqueAssetIds(['asset-a', '', 'asset-a', 'asset-b']);
+      expect(ids.length).assertEqual(2);
+      expect(ids[0]).assertEqual('asset-a');
+      expect(ids[1]).assertEqual('asset-b');
+      expect(PersistencePolicy.orphanCutoff(10000, 2500)).assertEqual(7500);
+    });
+    it('keepsSharedMediaReferencesPerOwner', 0, () => {
+      const first = ObservationService.normalizeObservation(INITIAL_OBSERVATIONS[0]);
+      const second = ObservationService.normalizeObservation(INITIAL_OBSERVATIONS[1]);
+      first.photoAssetIds = ['shared', 'first-only', 'shared'];
+      second.photoAssetIds = ['shared'];
+      const owners = MediaAssetService.observationReferences([first, second]);
+      expect(owners.size).assertEqual(2);
+      expect(owners.get(first.id)?.length).assertEqual(2);
+      expect(owners.get(second.id)?.length).assertEqual(1);
+      expect(owners.get(first.id)?.[0]).assertEqual('shared');
+    });
+    it('keepsOneThousandObservationRecordsStable', 0, () => {
+      const observations: Observation[] = [];
+      for (let index = 0; index < 1000; index++) {
+        const item = ObservationService.createObservation({ speciesId: 'egret', countText: '1', placeName: '地点' + index.toString(),
+          audioNote: '', note: '', fuzzyLocation: true, photos: [], existingCount: index });
+        observations.push(item);
+      }
+      expect(observations.length).assertEqual(1000);
+      expect(ObservationService.totalBirdCount(observations)).assertEqual(1000);
+      expect(ObservationService.placeCount(observations)).assertEqual(1000);
     });
   });
 }
