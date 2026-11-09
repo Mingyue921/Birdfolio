@@ -37,7 +37,7 @@ const port = Number(values.PORT || 8787);
 if (!Number.isInteger(port) || port < 1 || port > 65535) errors.push('PORT 必须是 1-65535 的整数');
 const host = String(values.HOST || '0.0.0.0').trim();
 if (!host) errors.push('HOST 不能为空');
-if (release && (host === '0.0.0.0' || host === '::')) errors.push('Release 环境不能直接监听 0.0.0.0/::，请使用本机回环地址并置于 HTTPS 反向代理后');
+if (release && (host === '0.0.0.0' || host === '::') && String(values.HTTPS_PROXY || '').toLowerCase() !== 'true') errors.push('容器监听 0.0.0.0/:: 时必须设置 HTTPS_PROXY=true，并仅由受控 HTTPS 入口访问');
 
 const visionKeys = ['VISION_API_URL', 'VISION_API_KEY', 'VISION_MODEL'];
 const configuredVision = visionKeys.filter(key => String(values[key] || '').trim().length > 0);
@@ -64,6 +64,30 @@ if (release && String(values.REQUIRE_AUTH || '').toLowerCase() !== 'true') error
 if (release && String(values.NODE_ENV || '').toLowerCase() !== 'production') {
   errors.push('Release 环境必须设置 NODE_ENV=production');
 }
+if (release && String(values.HTTPS_PROXY || '').toLowerCase() !== 'true') errors.push('Release 环境必须确认 HTTPS_PROXY=true，由受控入口终止 TLS');
+const databaseProvider = String(values.DATABASE_PROVIDER || 'sqlite').toLowerCase();
+if (!['sqlite', 'postgres'].includes(databaseProvider)) errors.push('DATABASE_PROVIDER 仅支持 sqlite 或 postgres');
+if (release && databaseProvider !== 'postgres') errors.push('Release 环境必须使用 DATABASE_PROVIDER=postgres');
+if (databaseProvider === 'postgres') {
+  const databaseUrl = String(values.DATABASE_URL || '').trim();
+  if (!databaseUrl) errors.push('PostgreSQL 必须配置 DATABASE_URL');
+  else { try { const parsed = new URL(databaseUrl); if (!['postgres:', 'postgresql:'].includes(parsed.protocol)) errors.push('DATABASE_URL 必须是 PostgreSQL URL'); } catch { errors.push('DATABASE_URL 不是有效 URL'); } }
+  if (release && String(values.DATABASE_SSL || 'true').toLowerCase() !== 'true') errors.push('Release PostgreSQL 必须设置 DATABASE_SSL=true');
+}
+const storageProvider = String(values.MEDIA_STORAGE || 'local').toLowerCase();
+if (!['local', 'obs'].includes(storageProvider)) errors.push('MEDIA_STORAGE 仅支持 local 或 obs');
+if (release && storageProvider !== 'obs') errors.push('Release 环境必须使用 MEDIA_STORAGE=obs');
+if (storageProvider === 'obs') {
+  for (const key of ['OBS_ENDPOINT', 'OBS_BUCKET', 'OBS_ACCESS_KEY_ID', 'OBS_SECRET_ACCESS_KEY']) if (!String(values[key] || '').trim()) errors.push(`OBS 存储必须配置 ${key}`);
+  try { if (release && new URL(values.OBS_ENDPOINT).protocol !== 'https:') errors.push('Release OBS_ENDPOINT 必须使用 HTTPS'); } catch { if (values.OBS_ENDPOINT) errors.push('OBS_ENDPOINT 不是有效 URL'); }
+}
+const mailUrl = String(values.MAIL_PROVIDER_URL || '').trim();
+if (release && !mailUrl) errors.push('Release 环境必须配置 MAIL_PROVIDER_URL');
+if (mailUrl) { try { if (release && new URL(mailUrl).protocol !== 'https:') errors.push('Release MAIL_PROVIDER_URL 必须使用 HTTPS'); } catch { errors.push('MAIL_PROVIDER_URL 不是有效 URL'); } }
+if (release && !String(values.MAIL_PROVIDER_TOKEN || '').trim()) errors.push('Release 环境必须配置 MAIL_PROVIDER_TOKEN');
+if (release && String(values.AUTH_DEBUG_CODES || '').toLowerCase() === 'true') errors.push('Release 环境禁止 AUTH_DEBUG_CODES=true');
+if (release && String(values.AUTH_DEV_CODE || '').trim()) errors.push('Release 环境禁止 AUTH_DEV_CODE');
+if (release && String(values.DEMO_MODE || '').toLowerCase() !== 'false') errors.push('Release 环境必须设置 DEMO_MODE=false');
 
 const envFile = resolve(root, '.env');
 if (!existsSync(envFile)) warnings.push('未找到 server/.env；启动脚本会从 .env.example 创建开发配置');
@@ -77,5 +101,7 @@ if (errors.length > 0) {
   console.log(`- Node.js: ${process.version}`);
   console.log(`- Listen: ${host}:${port}`);
   console.log(`- Vision: ${configuredVision.length === visionKeys.length ? 'provider configured' : 'offline fallback'}`);
+  console.log(`- Database: ${databaseProvider}`);
+  console.log(`- Media storage: ${storageProvider}`);
   for (const warning of warnings) console.warn(`! ${warning}`);
 }

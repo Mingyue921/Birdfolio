@@ -11,8 +11,15 @@
     "start:release": "npm run check:release && node --dns-result-order=ipv4first src/server.mjs --release",
     "check:env": "node scripts/check-env.mjs",
     "check:release": "node scripts/check-env.mjs --release",
+    "db:migrate": "node src/jobs/migrate-database.mjs",
+    "db:backup": "node src/jobs/backup-database.mjs",
+    "db:restore": "node src/jobs/restore-database.mjs",
     "cleanup:media": "node src/jobs/cleanup-media.mjs",
     "test": "node --test test/*.test.mjs",
     "test:ci": "node --test --test-reporter=spec test/*.test.mjs"
+  },
+  "dependencies": {
+    "esdk-obs-nodejs": "^3.26.10",
+    "pg": "^8.16.3"
   }
 }

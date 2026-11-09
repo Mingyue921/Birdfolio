@@ -34,6 +34,13 @@ export function openDatabase(filePath, options = {}) {
           post.behavior, post.placeName, post.visibility, post.imageUrl, post.createdAt, post.createdAt);
       }
     }
+    db.dialect = 'sqlite';
+    db.health = async () => { db.prepare('SELECT 1').get(); return true; };
+    db.transaction = async callback => {
+      db.exec('BEGIN IMMEDIATE');
+      try { const result = await callback(db); db.exec('COMMIT'); return result; }
+      catch (error) { try { db.exec('ROLLBACK'); } catch { /* preserve original error */ } throw error; }
+    };
     return db;
   } catch (error) {
     try { db.close(); } catch { /* preserve the initialization error */ }
@@ -41,19 +48,23 @@ export function openDatabase(filePath, options = {}) {
   }
 }
 
-export function postRows(db, where = '', params = [], viewerId = 'demo-user') {
-  const rows = db.prepare(`SELECT p.*,
+export async function postRows(db, where = '', params = [], viewerId = 'demo-user') {
+  const rows = await db.prepare(`SELECT p.*,
     COALESCE(SUM(r.liked),0) AS like_count, COALESCE(SUM(r.favorite),0) AS favorite_count,
     (SELECT COUNT(*) FROM comments c WHERE c.post_id=p.id) AS comment_count
     FROM posts p LEFT JOIN reactions r ON r.post_id=p.id ${where}
     GROUP BY p.id ORDER BY p.created_at DESC`).all(...params);
-  return rows.map(row => ({
+  const result = rows.map(row => ({
     id: row.id, userId: row.user_id, authorName: row.author_name, type: row.type,
     title: row.title, body: row.body, speciesId: row.species_id, behavior: row.behavior,
     placeName: row.place_name, visibility: row.visibility, imageUrl: row.image_url,
     createdAt: row.created_at, updatedAt: row.updated_at,
     likeCount: Number(row.like_count), favoriteCount: Number(row.favorite_count), commentCount: Number(row.comment_count),
-    liked: Boolean(db.prepare('SELECT liked FROM reactions WHERE post_id=? AND user_id=?').get(row.id, viewerId)?.liked),
-    favorited: Boolean(db.prepare('SELECT favorite FROM reactions WHERE post_id=? AND user_id=?').get(row.id, viewerId)?.favorite)
+    liked: false, favorited: false
   }));
+  for (const item of result) {
+    item.liked = Boolean((await db.prepare('SELECT liked FROM reactions WHERE post_id=? AND user_id=?').get(item.id, viewerId))?.liked);
+    item.favorited = Boolean((await db.prepare('SELECT favorite FROM reactions WHERE post_id=? AND user_id=?').get(item.id, viewerId))?.favorite);
+  }
+  return result;
 }

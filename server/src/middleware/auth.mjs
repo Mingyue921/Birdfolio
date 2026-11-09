@@ -1,8 +1,8 @@
 import { bearerToken, LEGACY_USER_ID } from '../auth.mjs';
 
 export function createActor({ auth, env, requireAuthByDefault }) {
-  return function actor(req, input = {}, requiredAuth = requireAuthByDefault) {
-    const presented = bearerToken(req); const user = presented ? auth.authenticateToken(presented) : null;
+  return async function actor(req, input = {}, requiredAuth = requireAuthByDefault) {
+    const presented = bearerToken(req); const user = presented ? await auth.authenticateToken(presented) : null;
     if (presented && !user) throw new Error('INVALID_TOKEN');
     if (requiredAuth && !user) throw new Error('AUTH_REQUIRED');
     const legacyAllowed = String(env.ALLOW_LEGACY_DEMO ??

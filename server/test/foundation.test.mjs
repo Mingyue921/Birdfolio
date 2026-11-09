@@ -14,10 +14,10 @@ test('empty database applies numbered migrations in order and reopening is idemp
   const dir = mkdtempSync(join(tmpdir(), 'birdfolio-empty-migration-'));
   const path = join(dir, 'empty.db');
   const db = openDatabase(path, { seed: false, logger: silentLogger });
-  assert.deepEqual(db.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map(row => row.version), [1, 2]);
+  assert.deepEqual(db.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map(row => row.version), [1, 2, 3]);
   db.close();
   const reopened = openDatabase(path, { seed: false, logger: silentLogger });
-  assert.deepEqual(reopened.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map(row => row.version), [1, 2]);
+  assert.deepEqual(reopened.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map(row => row.version), [1, 2, 3]);
   reopened.close();
   rmSync(dir, { recursive: true, force: true });
 });
@@ -39,14 +39,16 @@ test('numbered migrations upgrade a legacy database and preserve data', () => {
     .map(row => ({ version: row.version, name: row.name }));
   assert.deepEqual(applied, [
     { version: 1, name: 'initial_schema' },
-    { version: 2, name: 'observation_version' }
+    { version: 2, name: 'observation_version' },
+    { version: 3, name: 'persistent_rate_limits' }
   ]);
+  assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='rate_limits'").get());
   assert.ok(db.prepare('PRAGMA table_info(observations)').all().some(column => column.name === 'version'));
   assert.equal(db.prepare('SELECT payload,version FROM observations WHERE id=?').get('legacy-observation').version, 1);
   db.close();
 
   const reopened = openDatabase(path, { seed: false, logger: silentLogger });
-  assert.equal(reopened.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get().count, 2);
+  assert.equal(reopened.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get().count, 3);
   assert.equal(reopened.prepare('SELECT COUNT(*) AS count FROM observations').get().count, 1);
   reopened.close();
   rmSync(dir, { recursive: true, force: true });
@@ -71,7 +73,7 @@ test('database initialization failure closes the database without masking the er
   assert.equal(closes, 1);
 });
 
-test('expired media cleanup removes only unreferenced files', () => {
+test('expired media cleanup removes only unreferenced files', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'birdfolio-cleanup-'));
   const db = openDatabase(join(dir, 'cleanup.db'), { seed: false, logger: silentLogger });
   const expiredPath = join(dir, 'expired.png'); const referencedPath = join(dir, 'referenced.png'); const activePath = join(dir, 'active.png');
@@ -85,7 +87,8 @@ test('expired media cleanup removes only unreferenced files', () => {
   db.prepare(`INSERT INTO posts(id,user_id,author_name,type,title,body,species_id,behavior,place_name,visibility,image_url,created_at,updated_at)
     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`).run('post-media', 'user', 'user', 'photo', 'title', 'body', '', '', '', '所有人', '/media/media-referenced.png', 'now', 'now');
 
-  assert.deepEqual(cleanupExpiredMedia(db, { now, logger: silentLogger }), { scanned: 3, removed: 1, skipped: 2 });
+  const storage = { async deleteObject(key) { const row = db.prepare('SELECT file_path FROM media WHERE file_name=?').get(key); if (!row || !existsSync(row.file_path)) return true; rmSync(row.file_path); return true; } };
+  assert.deepEqual(await cleanupExpiredMedia(db, { now, logger: silentLogger, storage }), { scanned: 3, removed: 1, skipped: 2 });
   assert.equal(existsSync(expiredPath), false);
   assert.equal(existsSync(referencedPath), true);
   assert.equal(existsSync(activePath), true);
