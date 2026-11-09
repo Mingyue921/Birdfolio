@@ -53,6 +53,16 @@ export class BirdfolioDatabase {
     return store;
   }
 
+  static async clear(context: common.UIAbilityContext): Promise<void> {
+    const key = context.databaseDir || DATABASE_NAME;
+    const cached = BirdfolioDatabase.stores.get(key);
+    if (cached) {
+      await cached.close();
+      BirdfolioDatabase.stores.delete(key);
+    }
+    await relationalStore.deleteRdbStore(context, DATABASE_NAME);
+  }
+
   static async loadPayloads(context: common.UIAbilityContext, table: PayloadTable): Promise<PersistedPayload[]> {
     const store = await BirdfolioDatabase.open(context);
     const predicates = new relationalStore.RdbPredicates(table); predicates.orderByDesc('updated_at');
