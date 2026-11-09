@@ -108,7 +108,13 @@ npm run check:env
 npm run check:release
 ```
 
-运行时数据位于 `data/`：SQLite 数据库、WAL 文件、上传图片和 GBIF 缓存均被忽略。正式部署至少需要定期备份数据库、限制上传大小和类型、移除图片 EXIF、配置 HTTPS/CORS、认证和请求限流；本地服务不应直接暴露到公网。
+运行时数据位于 `data/`：SQLite 数据库、WAL 文件、上传图片和 GBIF 缓存均被忽略。数据库结构由 `src/migrations.mjs` 中的编号迁移管理；服务启动时自动执行尚未应用的迁移。未被帖子引用的过期上传会在启动时和 `MEDIA_CLEANUP_INTERVAL_MS` 周期内清理，上传有效期由 `MEDIA_TTL_MS` 控制。服务日志为单行 JSON，包含请求 ID、状态码和耗时，便于日志采集系统解析。正式部署至少需要定期备份数据库、配置 HTTPS/CORS、认证和请求限流；本地服务不应直接暴露到公网。
+
+也可以在不启动 HTTP 服务的情况下执行一次媒体清理。命令读取 `server/.env`，使用 `DATABASE_PATH`（默认 `data/birdfolio.db`），并只输出扫描、删除和跳过数量：
+
+```powershell
+npm run cleanup:media
+```
 
 ## 密钥和许可证
 

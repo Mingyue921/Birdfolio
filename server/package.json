@@ -11,6 +11,7 @@
     "start:release": "npm run check:release && node --dns-result-order=ipv4first src/server.mjs --release",
     "check:env": "node scripts/check-env.mjs",
     "check:release": "node scripts/check-env.mjs --release",
+    "cleanup:media": "node src/jobs/cleanup-media.mjs",
     "test": "node --test test/*.test.mjs",
     "test:ci": "node --test --test-reporter=spec test/*.test.mjs"
   }
