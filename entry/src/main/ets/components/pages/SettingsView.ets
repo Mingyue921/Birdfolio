@@ -26,6 +26,7 @@ export struct SettingsView {
   @Prop authLoading: boolean;
   @Prop authMessage: string;
   @Prop aiUploadConsent: boolean;
+  @Prop cutoutUploadConsent: boolean;
   @BuilderParam onBack: () => void;
   @BuilderParam onSaveBackend: () => void;
   @BuilderParam onRetrySync: () => void;
@@ -35,6 +36,9 @@ export struct SettingsView {
   @BuilderParam onLogout: () => void;
   @BuilderParam onDeleteAccount: () => void;
   @BuilderParam onAiConsentAction: () => void;
+  @BuilderParam onCutoutConsentAction: () => void;
+  @BuilderParam onOpenLegal: (id: string) => void;
+  @BuilderParam onClearLocalData: () => void;
   @BuilderParam onShowStorageInfo: () => void;
   @BuilderParam onShowAbout: () => void;
 
@@ -98,10 +102,16 @@ export struct SettingsView {
 
           this.Section('隐私', '')
           this.SettingAction('AI 图片识别', this.aiUploadConsent ? '已授权，点此撤销  ›' : '未授权，点此设置  ›', () => this.onAiConsentAction())
+          this.SettingAction('AI 主体抠图', this.cutoutUploadConsent ? '已授权，点此撤销  ›' : '独立授权  ›', () => this.onCutoutConsentAction())
           this.SettingAction('默认位置精度', this.fuzzy ? '模糊位置  ›' : '精确位置  ›', () => this.fuzzy = !this.fuzzy)
+          this.SettingAction('隐私政策', '商业发布前草案  ›', () => this.onOpenLegal('privacy'))
+          this.SettingAction('用户协议', '商业发布前草案  ›', () => this.onOpenLegal('agreement'))
+          this.SettingAction('AI 图片处理说明', '用途与授权  ›', () => this.onOpenLegal('ai'))
+          this.SettingAction('第三方许可与来源', '图片、贴纸、字体  ›', () => this.onOpenLegal('licenses'))
           this.Section('数据与服务', '')
           this.SettingAction('存储空间', '本地缓存  ›', () => this.onShowStorageInfo())
           this.SettingAction('导出观察数据', this.authMode === 'authenticated' ? '导出云端数据  ›' : '登录后可用', () => this.onExportData())
+          this.SettingAction('清除本机数据', '不删除云端账号  ›', () => this.onClearLocalData())
           this.SettingAction('关于 Birdfolio', 'Beta 0.2 · 本地优先', () => this.onShowAbout())
         }.padding({ left: 16, right: 16, bottom: 28 })
       }.layoutWeight(1)

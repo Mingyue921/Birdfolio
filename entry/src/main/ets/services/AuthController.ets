@@ -41,7 +41,10 @@ export class AuthController {
     }
     try {
       const refreshed = await new ApiService(this.backendUrl).refreshSession(saved.refreshToken);
-      if (!await AuthStorage.save(this.context, refreshed)) return { session: refreshed, expired: false };
+      if (!await AuthStorage.save(this.context, refreshed)) {
+        await AuthStorage.clear(this.context);
+        return { session: null, expired: true };
+      }
       return { session: refreshed, expired: false };
     } catch (_error) {
       await AuthStorage.clear(this.context);

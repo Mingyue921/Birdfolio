@@ -1,9 +1,9 @@
 import { BusinessError } from '@kit.BasicServicesKit';
-import { hilog } from '@kit.PerformanceAnalysisKit';
 import { ImageSourceType, LatLng, MapComponent, MapController, Marker } from '@tencentmap/map';
 import { Observation, PlaceObservationStat } from '../../models/BirdModels';
 import { MapService } from '../../services/MapService';
 import { ObservationService } from '../../services/ObservationService';
+import { SafeLogger } from '../../services/SafeLogger';
 import { PageHeaderView } from './PageHeaderView';
 
 const BG = '#F9FAF7';
@@ -13,8 +13,6 @@ const MUTED = '#5E6861';
 const BORDER = '#DDE3DC';
 const GREEN = '#2F6B4F';
 const GREEN_SOFT = '#EBF3EE';
-const LOG_DOMAIN: number = 0x0000;
-const LOG_TAG: string = 'BirdfolioMap';
 
 @Component
 export struct MapView {
@@ -41,7 +39,7 @@ export struct MapView {
   private places(): PlaceObservationStat[] { return ObservationService.placeStats(this.records); }
   private validPlaces(): PlaceObservationStat[] { return ObservationService.validPlaces(this.records); }
   private callbackError(error: Object): string { if (!error) return ''; const businessError = error as BusinessError; const code = businessError.code !== undefined ? businessError.code.toString() : 'unknown'; return 'code=' + code + ', message=' + (businessError.message ? businessError.message : 'unknown error'); }
-  private onReady(error: Object, controller: MapController): void { if (error) { const detail = this.callbackError(error); hilog.error(LOG_DOMAIN, LOG_TAG, 'onReady failed: %{public}s', detail); this.authFailed = true; this.mapReady = false; this.errorMessage = '腾讯地图初始化失败：' + detail; return; } this.mapReady = true; this.errorMessage = ''; this.controller = controller; this.refreshMarkers(); }
+  private onReady(error: Object, controller: MapController): void { if (error) { const detail = this.callbackError(error); SafeLogger.error('BirdfolioMap', 'map_ready_failed'); this.authFailed = true; this.mapReady = false; this.errorMessage = '腾讯地图初始化失败：' + detail; return; } this.mapReady = true; this.errorMessage = ''; this.controller = controller; this.refreshMarkers(); }
   private onAuth(error: Object, success: boolean): void { const detail = this.callbackError(error); this.authFailed = !!error || !success; if (this.authFailed) { this.mapReady = false; this.errorMessage = '腾讯地图鉴权失败：' + (detail.length > 0 ? detail : '服务器未返回错误详情'); } }
   private refreshMarkers(): void { if (!this.controller) return; const places = this.validPlaces(); if (this.markers.length > 0) this.controller.removeMarkers(this.markers); this.markers = []; this.markerPlaceNames = []; places.forEach((item: PlaceObservationStat) => { const marker = new Marker({ position: new LatLng(item.latitude, item.longitude), icon: { uri: 'tencentmap_locator.png', type: ImageSourceType.RawFile }, width: 42, height: 52, anchorX: 0.5, anchorY: 1, clickable: true, zIndex: 10 }); marker.setOnClickListener((): void => { this.focusPlace(item); }); if (this.controller!.addMarker(marker)) { this.markers.push(marker); this.markerPlaceNames.push(item.placeName); } }); if (places.length > 0) this.controller.moveCamera(places.map((item: PlaceObservationStat): LatLng => new LatLng(item.latitude, item.longitude)), 60, false); }
   private focusPlace(item: PlaceObservationStat): void { this.selectedPlaceName = item.placeName; this.selectedPlaceCount = item.recordCount; const placeRecords = this.records.filter((record: Observation) => record.placeName === item.placeName); const names: string[] = []; placeRecords.forEach((record: Observation) => { const name = this.birdName(record.speciesId); if (names.indexOf(name) < 0) names.push(name); }); this.selectedSpeciesSummary = names.slice(0, 3).join('、') + (names.length > 3 ? ' 等 ' + names.length + ' 种' : ''); placeRecords.sort((a: Observation, b: Observation) => b.observedAt.localeCompare(a.observedAt)); this.selectedLatest = placeRecords.length > 0 ? '最近记录 ' + placeRecords[0].observedAt : ''; if (!this.controller || !this.mapReady) { this.onNotice(item.placeName + ' · ' + item.recordCount.toString() + ' 次观察'); return; } this.controller.setCenter(item.latitude, item.longitude, true); this.controller.setScaleLevel(16, true); this.markers.forEach((marker: Marker, index: number) => { const selected = this.markerPlaceNames[index] === item.placeName; marker.options.scaleX = selected ? 1.45 : 1; marker.options.scaleY = selected ? 1.45 : 1; marker.options.zIndex = selected ? 30 : 10; this.controller!.updateMarker(marker); }); }
