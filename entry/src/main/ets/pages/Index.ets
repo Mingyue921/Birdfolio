@@ -7,12 +7,12 @@ import fileUri from '@ohos.file.fileuri';
 import picker from '@ohos.file.picker';
 import { util } from '@kit.ArkTS';
 import { webview } from '@kit.ArkWeb';
-import { hilog } from '@kit.PerformanceAnalysisKit';
 import { INITIAL_OBSERVATIONS, SPECIES } from '../data/BirdSeedData';
 import { catalogSpeciesImage } from '../data/BirdImageMap.generated';
 import { BirdSpecies, Observation, ObservationInput, JournalBook, JournalPage, JournalElement, JournalElementStyle, BackendStatus, CommunityPost, PostComment, PostDraft, CreatePostInput, IdentificationCandidate, IdentificationResult, SpeciesCatalogResult, UserProfile, HealthResult } from '../models/BirdModels';
 import { AppRoute } from '../models/AppRoute';
-import { AuthMode, AuthSession, IdentificationResultV2, IdentificationMetadata, SyncMutation, SyncPushInput } from '../models/BetaModels';
+import { AuthMode, AuthSession, IdentificationResultV2, IdentificationMetadata, SyncMutation, SyncPushInput, PrivacySettings } from '../models/BetaModels';
+import { LegalDocumentContent, LegalDocumentId, legalDocument } from '../data/LegalContent';
 import { SyncJob } from '../models/SyncModels';
 import { ObservationService } from '../services/ObservationService';
 import { ObservationStorage } from '../services/ObservationStorage';
@@ -41,6 +41,7 @@ import { StatsView } from '../components/pages/StatsView';
 import { JournalEditorWebView, JournalWebBridge } from '../components/pages/JournalEditorWebView';
 import { ObservationDetailPage } from '../components/pages/ObservationDetailPage';
 import { SpeciesPickerView } from '../components/pages/SpeciesPickerView';
+import { LegalDocumentView } from '../components/pages/LegalDocumentView';
 import { LocationService } from '../services/LocationService';
 import { JournalService } from '../services/JournalService';
 import { JournalStorage } from '../services/JournalStorage';
@@ -55,6 +56,8 @@ import { PrivacyStorage } from '../services/PrivacyStorage';
 import { ProfileStorage } from '../services/ProfileStorage';
 import { AuthStorage } from '../services/AuthStorage';
 import { AuthController } from '../services/AuthController';
+import { LocalDataCleanupService } from '../services/LocalDataCleanupService';
+import { SafeLogger } from '../services/SafeLogger';
 
 const BG = '#F9FAF7';
 const WHITE = '#FFFFFF';
@@ -68,8 +71,6 @@ const BLUE_SOFT = '#E5F0F3';
 const RED = '#D7644A';
 const AMBER = '#E5A832';
 const SERIF = 'serif';
-const MAP_LOG_DOMAIN: number = 0x0000;
-const MAP_LOG_TAG: string = 'BirdfolioMap';
 
 interface JournalObservationText {
   id: string;
@@ -172,6 +173,7 @@ struct Index {
   @State guideLoading: boolean = false;
   @State guideMessage: string = '离线中文图鉴 · 50 种';
   @State aiUploadConsent: boolean = false;
+  @State cutoutUploadConsent: boolean = false;
   @State profileSaving: boolean = false;
   @State authMode: AuthMode = 'guest';
   @State authEmail: string = '';
@@ -201,13 +203,13 @@ struct Index {
     (uri: string) => this.readJournalImage(uri),
     (exportId: string, chunk: string, reset: boolean) => this.receiveJournalWebExportChunk(exportId, chunk, reset),
     (exportId: string, title: string, page: number, requestId: string) => this.finishJournalWebExport(exportId, title, page, requestId),
-    (message: string) => hilog.info(MAP_LOG_DOMAIN, 'BirdfolioJournal', 'Editor event: %{public}s', message)
+    (_message: string) => SafeLogger.info('BirdfolioJournal', 'editor_event')
   );
 
   aboutToAppear(): void {
     webview.WebviewController.initializeWebEngine();
     const initialized = MapService.init();
-    hilog.info(MAP_LOG_DOMAIN, MAP_LOG_TAG, 'Page appeared, map configured=%{public}s', initialized.toString());
+    SafeLogger.info('BirdfolioMap', initialized ? 'page_ready_map_configured' : 'page_ready_map_unconfigured');
     this.load();
     this.loadMapPrivacy();
   }
@@ -217,7 +219,7 @@ struct Index {
     Privacy.setUserAgreePrivacy(agreed);
     this.mapPrivacyAgreed = agreed;
     this.mapPrivacyLoaded = true;
-    hilog.info(MAP_LOG_DOMAIN, MAP_LOG_TAG, 'Map privacy consent loaded, agreed=%{public}s', agreed.toString());
+    SafeLogger.info('BirdfolioMap', agreed ? 'privacy_loaded_agreed' : 'privacy_loaded_declined');
   }
 
   private showConfirmDialog(
@@ -256,7 +258,7 @@ struct Index {
         this.mapPrivacyAgreed = true;
         const saved = await MapPrivacyStorage.save(this.context, true);
         if (!saved) this.toast = '授权状态保存失败，下次需要重新确认';
-        hilog.info(MAP_LOG_DOMAIN, MAP_LOG_TAG, 'User agreed to Tencent Map privacy terms');
+        SafeLogger.info('BirdfolioMap', 'privacy_agreed');
       },
       () => { Privacy.setUserAgreePrivacy(false); }
     );
@@ -267,7 +269,9 @@ struct Index {
     this.displayName = profile.displayName;
     this.bio = profile.bio;
     this.avatarUri = profile.avatarUri;
-    this.aiUploadConsent = (await PrivacyStorage.load(this.context)).aiPhotoUploadAgreed;
+    const privacySettings: PrivacySettings = await PrivacyStorage.load(this.context);
+    this.aiUploadConsent = PrivacyStorage.hasActiveConsent(privacySettings, 'identification');
+    this.cutoutUploadConsent = PrivacyStorage.hasActiveConsent(privacySettings, 'cutout');
     this.customSpecies = await SpeciesStorage.load(this.context);
     this.guideSpecies = SPECIES.concat(this.customSpecies);
     this.journalBooks = await JournalStorage.load(this.context);
@@ -661,7 +665,7 @@ struct Index {
       if (parsed.id !== this.page.bookId) return 'error';
       const savedRevision = this.journalSavedRevisions.get(parsed.id) ?? -1;
       if (revision < savedRevision) {
-        hilog.warn(MAP_LOG_DOMAIN, 'BirdfolioJournal', 'Ignored stale journal save revision=%{public}d saved=%{public}d', revision, savedRevision);
+        SafeLogger.warn('BirdfolioJournal', 'stale_save_ignored');
         return 'stale';
       }
       this.selectedJournalPage = Math.max(0, Math.min(pageIndex, parsed.pages.length - 1));
@@ -683,7 +687,7 @@ struct Index {
   }
   private closeJournalWebEditor(): void { this.page = AppRoute.home(); this.selectedJournalElementId = ''; }
   private requestCloseJournalWebEditor(requestId: string): void {
-    hilog.info(MAP_LOG_DOMAIN, 'BirdfolioJournal', 'Closing journal editor request=%{public}s', requestId);
+    SafeLogger.info('BirdfolioJournal', 'editor_close_requested');
     this.closeJournalWebEditor();
   }
   private deleteJournalFromWeb(id: string): void {
@@ -730,26 +734,24 @@ struct Index {
       const bytes = new util.Base64Helper().decodeSync(dataUrl.substring(comma + 1));
       const name = 'journal_export_' + Date.now().toString() + '_' + page.toString() + '.png';
       const path = this.context.cacheDir + '/' + name;
-      hilog.info(MAP_LOG_DOMAIN, 'BirdfolioJournal', 'Creating export cache bytes=%{public}d path=%{public}s', bytes.length, path);
+      SafeLogger.info('BirdfolioJournal', 'export_cache_creating');
       const file = fs.openSync(path, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE);
       fs.writeSync(file.fd, bytes);
       fs.closeSync(file);
-      hilog.info(MAP_LOG_DOMAIN, 'BirdfolioJournal', 'Export cache ready');
+      SafeLogger.info('BirdfolioJournal', 'export_cache_ready');
       try {
         const sourceUri = fileUri.getUriFromPath(path);
         const config: photoAccessHelper.PhotoCreationConfig = { title: title + '_第' + page.toString() + '页', fileNameExtension: 'png', photoType: photoAccessHelper.PhotoType.IMAGE };
-        hilog.info(MAP_LOG_DOMAIN, 'BirdfolioJournal', 'Opening album dialog bytes=%{public}d uri=%{public}s', bytes.length, sourceUri);
+        SafeLogger.info('BirdfolioJournal', 'album_dialog_opening');
         const savedUris = await photoAccessHelper.getPhotoAccessHelper(this.context).showAssetsCreationDialog([sourceUri], [config]);
-        hilog.info(MAP_LOG_DOMAIN, 'BirdfolioJournal', 'Album dialog finished saved=%{public}d', savedUris.length);
+        SafeLogger.info('BirdfolioJournal', savedUris.length > 0 ? 'album_dialog_saved' : 'album_dialog_cancelled');
         return savedUris.length > 0 ? 'ok' : 'cancelled';
-      } catch (albumError) {
-        const albumBusinessError = albumError as BusinessError;
-        hilog.error(MAP_LOG_DOMAIN, 'BirdfolioJournal', 'Album dialog failed code=%{public}d message=%{public}s; opening file picker fallback', albumBusinessError.code, albumBusinessError.message);
+      } catch (_albumError) {
+        SafeLogger.warn('BirdfolioJournal', 'album_dialog_failed_using_picker');
         return await this.exportJournalWebImageToFile(bytes, title, page);
       }
-    } catch (error) {
-      const businessError = error as BusinessError;
-      hilog.error(MAP_LOG_DOMAIN, 'BirdfolioJournal', 'Journal export failed code=%{public}d message=%{public}s', businessError.code, businessError.message);
+    } catch (_error) {
+      SafeLogger.error('BirdfolioJournal', 'journal_export_failed');
       return 'error';
     }
   }
@@ -764,11 +766,11 @@ struct Index {
       const output = fs.openSync(destinations[0], fs.OpenMode.READ_WRITE);
       fs.writeSync(output.fd, bytes);
       fs.closeSync(output);
-      hilog.info(MAP_LOG_DOMAIN, 'BirdfolioJournal', 'File picker export finished bytes=%{public}d', bytes.length);
+      SafeLogger.info('BirdfolioJournal', 'file_picker_export_finished');
       return 'ok';
     } catch (error) {
       const businessError = error as BusinessError;
-      hilog.error(MAP_LOG_DOMAIN, 'BirdfolioJournal', 'File picker export failed code=%{public}d message=%{public}s', businessError.code, businessError.message);
+      SafeLogger.error('BirdfolioJournal', businessError.code === 13900020 ? 'file_picker_export_cancelled' : 'file_picker_export_failed');
       return businessError.code === 13900020 ? 'cancelled' : 'error';
     }
   }
@@ -782,7 +784,7 @@ struct Index {
     if (reset) {
       this.journalExportChunks.set(exportId, []);
       this.journalExportSizes.set(exportId, 0);
-      hilog.info(MAP_LOG_DOMAIN, 'BirdfolioJournal', 'Receiving export chunks id=%{public}s', exportId);
+      SafeLogger.info('BirdfolioJournal', 'export_chunks_started');
     }
     const chunks = this.journalExportChunks.get(exportId);
     const currentSize = this.journalExportSizes.get(exportId) ?? 0;
@@ -799,11 +801,11 @@ struct Index {
     this.journalExportChunks.delete(exportId);
     this.journalExportSizes.delete(exportId);
     if (!chunks || chunks.length === 0) {
-      hilog.error(MAP_LOG_DOMAIN, 'BirdfolioJournal', 'No export chunks received id=%{public}s', exportId);
+      SafeLogger.error('BirdfolioJournal', 'export_chunks_missing');
       this.finishJournalWebRequest(requestId, 'error');
       return;
     }
-    hilog.info(MAP_LOG_DOMAIN, 'BirdfolioJournal', 'Export chunks complete count=%{public}d size=%{public}d', chunks.length, chunks.join('').length);
+    SafeLogger.info('BirdfolioJournal', 'export_chunks_complete');
     const dataUrl = 'data:image/png;base64,' + chunks.join('');
     this.requestJournalWebExport(dataUrl, title, page, requestId);
   }
@@ -1051,6 +1053,65 @@ struct Index {
         this.toast = '已撤销 AI 图片授权';
       }
     );
+  }
+  private requestCutoutConsent(): void {
+    const granting = !this.cutoutUploadConsent;
+    this.showConfirmDialog(
+      granting ? '允许 AI 主体抠图？' : '撤销 AI 抠图授权？',
+      granting
+        ? '未来使用主体抠图时，应用会把你主动选择的图片发送到 Birdfolio 后端生成蒙版。此授权与识鸟分开记录；当前版本尚未启用抠图上传。'
+        : '撤销后，未来的主体抠图不会上传照片，除非你再次单独同意。',
+      '取消',
+      granting ? '单独同意' : '确认撤销',
+      granting ? GREEN : RED,
+      async () => {
+        const saved = await PrivacyStorage.setConsent(this.context, 'cutout', granting);
+        if (!saved) { this.toast = '授权状态保存失败，请重试'; return; }
+        this.cutoutUploadConsent = granting;
+        this.toast = granting ? '已记录 AI 抠图授权' : '已撤销 AI 抠图授权';
+      }
+    );
+  }
+  private requestClearLocalData(): void {
+    this.showConfirmDialog(
+      '清除本机数据？',
+      '将清除本机观察、手账、草稿、缓存、授权记录和登录会话。此操作不会删除云端账号或云端数据，且无法在本机撤销。',
+      '取消',
+      '清除本机数据',
+      RED,
+      async () => {
+        const cleared = await LocalDataCleanupService.clear(this.context);
+        if (!cleared) { this.toast = '部分本机数据清理失败，请重试'; return; }
+        await ObservationStorage.save(this.context, []);
+        await JournalStorage.save(this.context, []);
+        await CommunityStorage.savePosts(this.context, []);
+        await CommunityStorage.saveDrafts(this.context, []);
+        await SyncQueueStorage.save(this.context, []);
+        await SpeciesStorage.save(this.context, []);
+        this.records = [];
+        this.journalBooks = [];
+        this.communityPosts = [];
+        this.communityDrafts = [];
+        this.syncJobs = [];
+        this.customSpecies = [];
+        this.guideSpecies = SPECIES;
+        this.authSession = null;
+        this.authMode = 'guest';
+        this.authEmail = '';
+        this.authCode = '';
+        this.aiUploadConsent = false;
+        this.cutoutUploadConsent = false;
+        this.mapPrivacyAgreed = false;
+        Privacy.setUserAgreePrivacy(false);
+        this.page = AppRoute.home();
+        this.toast = '本机数据已清除，云端账号和云端数据未删除';
+      }
+    );
+  }
+  private currentLegalDocument(): LegalDocumentContent {
+    const id = this.page.legalDocumentId;
+    if (id === 'agreement' || id === 'ai' || id === 'licenses') return legalDocument(id as LegalDocumentId);
+    return legalDocument('privacy');
   }
   private async selectIdentificationPhoto(): Promise<void> {
     this.resetIdentification();
@@ -1424,7 +1485,7 @@ struct Index {
             needsProxyReload: $journalWebNeedsProxyReload,
             onSelectFile: (result: FileSelectorResult) => this.selectJournalWebFile(result),
             onReady: () => this.loadJournalIntoWeb(),
-            onError: (error: BusinessError) => { hilog.error(MAP_LOG_DOMAIN, 'BirdfolioJournal', 'Journal bridge registration failed code=%{public}d message=%{public}s', error.code, error.message); this.toast = '手账编辑器连接失败，请重新进入' }
+            onError: (_error: BusinessError) => { SafeLogger.error('BirdfolioJournal', 'bridge_registration_failed'); this.toast = '手账编辑器连接失败，请重新进入' }
           })
           else if (this.page.name === 'birdDetail') BirdDetailView({
             species: this.selectedBirdSpecies(this.page.speciesId),
@@ -1502,6 +1563,7 @@ struct Index {
             authLoading: this.authLoading,
             authMessage: this.authMessage,
             aiUploadConsent: this.aiUploadConsent,
+            cutoutUploadConsent: this.cutoutUploadConsent,
             onBack: () => this.page = AppRoute.home(),
             onSaveBackend: () => this.saveBackendUrl(),
             onRetrySync: () => { this.checkBackend().then(() => this.processSyncQueue()) },
@@ -1511,9 +1573,13 @@ struct Index {
             onLogout: () => this.logoutAccount(),
             onDeleteAccount: () => this.deleteAccount(),
             onAiConsentAction: () => this.requestRevokeAiConsent(),
+            onCutoutConsentAction: () => this.requestCutoutConsent(),
+            onOpenLegal: (id: string) => this.page = AppRoute.legal(id),
+            onClearLocalData: () => this.requestClearLocalData(),
             onShowStorageInfo: () => this.toast = '观察、手账和社区缓存均保存在本机',
             onShowAbout: () => this.toast = 'Birdfolio 商业 Beta · AI 结果需用户确认'
           })
+          else if (this.page.name === 'legal') LegalDocumentView({ document: this.currentLegalDocument(), onBack: () => this.page = AppRoute.settings() })
           else if (this.page.name === 'speciesPicker') SpeciesPickerView({
             keyword: $keyword,
             selectedSpeciesId: this.speciesId,

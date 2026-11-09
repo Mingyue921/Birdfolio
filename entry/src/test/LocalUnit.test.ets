@@ -4,6 +4,10 @@ import { ObservationService } from '../main/ets/services/ObservationService';
 import { SyncQueueService } from '../main/ets/services/SyncQueueService';
 import { JournalService } from '../main/ets/services/JournalService';
 import { Observation } from '../main/ets/models/BirdModels';
+import { AuthSession, PrivacySettings } from '../main/ets/models/BetaModels';
+import { AuthSessionPolicy } from '../main/ets/services/AuthSessionPolicy';
+import { PrivacyPolicy, PRIVACY_POLICY_VERSION } from '../main/ets/services/PrivacyPolicy';
+import { ReleaseLogPolicy } from '../main/ets/services/ReleaseLogPolicy';
 
 export default function localUnitTest() {
   describe('localUnitTest', () => {
@@ -251,6 +255,73 @@ export default function localUnitTest() {
       expect(title?.x).assertEqual(65);
       const emptied = JournalService.deletePage(templated, 0);
       expect(emptied.pages.length).assertEqual(1);
+    });
+    it('normalizesAndParsesSecureAuthSessions', 0, () => {
+      const source: AuthSession = {
+        accessToken: '  access-token  ', refreshToken: 'refresh-token', expiresAt: 123456,
+        userId: '  user-1  ', email: ' user@example.com ', displayName: 'Bird User'
+      };
+      const normalized = AuthSessionPolicy.normalize(source);
+      expect(normalized?.accessToken).assertEqual('access-token');
+      expect(normalized?.userId).assertEqual('user-1');
+      expect(normalized?.email).assertEqual('user@example.com');
+      expect(AuthSessionPolicy.parse(JSON.stringify(source))?.refreshToken).assertEqual('refresh-token');
+      expect(AuthSessionPolicy.parse('broken')).assertNull();
+      const missingAccess: AuthSession = {
+        accessToken: ' ', refreshToken: source.refreshToken, expiresAt: source.expiresAt,
+        userId: source.userId, email: source.email, displayName: source.displayName
+      };
+      const missingUser: AuthSession = {
+        accessToken: source.accessToken, refreshToken: source.refreshToken, expiresAt: source.expiresAt,
+        userId: ' ', email: source.email, displayName: source.displayName
+      };
+      expect(AuthSessionPolicy.normalize(missingAccess)).assertNull();
+      expect(AuthSessionPolicy.normalize(missingUser)).assertNull();
+    });
+    it('checksAuthSessionFreshnessWithoutExposingTokens', 0, () => {
+      const base: AuthSession = {
+        accessToken: 'access-token', refreshToken: 'refresh-token', userId: 'user-1',
+        email: 'user@example.com', displayName: '', expiresAt: Date.now() + 120000
+      };
+      expect(AuthSessionPolicy.accessToken(base)).assertEqual('access-token');
+      expect(AuthSessionPolicy.isAccessTokenFresh(base)).assertTrue();
+      const expired: AuthSession = {
+        accessToken: base.accessToken, refreshToken: base.refreshToken, userId: base.userId,
+        email: base.email, displayName: base.displayName, expiresAt: Date.now() - 1
+      };
+      expect(AuthSessionPolicy.isAccessTokenFresh(expired)).assertFalse();
+      expect(AuthSessionPolicy.isAccessTokenFresh(null)).assertFalse();
+    });
+    it('keepsIdentificationAndCutoutConsentIndependent', 0, () => {
+      const now = Date.now();
+      const settings: PrivacySettings = {
+        aiPhotoUploadAgreed: true,
+        diagnosticsEnabled: false,
+        consents: [
+          { purpose: 'identification', policyVersion: PRIVACY_POLICY_VERSION, agreedAt: now, revokedAt: 0 },
+          { purpose: 'cutout', policyVersion: PRIVACY_POLICY_VERSION, agreedAt: 0, revokedAt: now }
+        ]
+      };
+      expect(PrivacyPolicy.hasActiveConsent(settings, 'identification')).assertTrue();
+      expect(PrivacyPolicy.hasActiveConsent(settings, 'cutout')).assertFalse();
+      expect(PrivacyPolicy.latestRecord(settings, 'cutout')?.revokedAt).assertEqual(now);
+    });
+    it('rejectsOutdatedOrMalformedConsentRecords', 0, () => {
+      const outdated: PrivacySettings = {
+        aiPhotoUploadAgreed: false,
+        diagnosticsEnabled: false,
+        consents: [{ purpose: 'identification', policyVersion: 'old-policy', agreedAt: 1, revokedAt: 0 }]
+      };
+      expect(PrivacyPolicy.hasActiveConsent(outdated, 'identification')).assertFalse();
+      expect(PrivacyPolicy.parseConsents('broken').length).assertEqual(0);
+      expect(PrivacyPolicy.parseConsents('[{"purpose":"unknown"}]').length).assertEqual(0);
+      expect(PrivacyPolicy.parseConsents('[{"purpose":"cutout","policyVersion":"v","agreedAt":5,"revokedAt":0}]').length).assertEqual(1);
+    });
+    it('sanitizesReleaseLogEvents', 0, () => {
+      expect(ReleaseLogPolicy.event('auth.login_success')).assertEqual('auth.login_success');
+      expect(ReleaseLogPolicy.event('photo uri: file:///private/user.jpg')).assertEqual('photo_uri__file____private_user.jpg');
+      expect(ReleaseLogPolicy.event('')).assertEqual('unknown');
+      expect(ReleaseLogPolicy.event('x'.repeat(100)).length).assertEqual(80);
     });
   });
 }

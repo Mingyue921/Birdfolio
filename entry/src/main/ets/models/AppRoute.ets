@@ -16,6 +16,7 @@ export type AppRouteName =
   'migration' |
   'profileEdit' |
   'settings' |
+  'legal' |
   'product' |
   'notifications';
 
@@ -26,6 +27,7 @@ export class AppRoute {
   readonly postId: string;
   readonly bookId: string;
   readonly returnRouteName: AppRouteName;
+  readonly legalDocumentId: string;
 
   private constructor(
     name: AppRouteName,
@@ -33,7 +35,8 @@ export class AppRoute {
     speciesId: string = '',
     postId: string = '',
     bookId: string = '',
-    returnRouteName: AppRouteName = 'home'
+    returnRouteName: AppRouteName = 'home',
+    legalDocumentId: string = ''
   ) {
     this.name = name;
     this.observationId = observationId;
@@ -41,6 +44,7 @@ export class AppRoute {
     this.postId = postId;
     this.bookId = bookId;
     this.returnRouteName = returnRouteName;
+    this.legalDocumentId = legalDocumentId;
   }
 
   static home(): AppRoute { return new AppRoute('home'); }
@@ -60,6 +64,7 @@ export class AppRoute {
   static migration(): AppRoute { return new AppRoute('migration'); }
   static profileEdit(): AppRoute { return new AppRoute('profileEdit'); }
   static settings(): AppRoute { return new AppRoute('settings'); }
+  static legal(documentId: string): AppRoute { return new AppRoute('legal', '', '', '', '', 'settings', documentId); }
   static product(): AppRoute { return new AppRoute('product'); }
   static notifications(): AppRoute { return new AppRoute('notifications'); }
   returnRoute(): AppRoute { return new AppRoute(this.returnRouteName, this.observationId, this.speciesId, this.postId, this.bookId); }
