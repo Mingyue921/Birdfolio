@@ -82,6 +82,13 @@ const migrations = [
       const columns = db.prepare('PRAGMA table_info(observations)').all().map(row => row.name);
       if (!columns.includes('version')) db.exec('ALTER TABLE observations ADD COLUMN version INTEGER NOT NULL DEFAULT 1');
     }
+  },
+  {
+    version: 3,
+    name: 'persistent_rate_limits',
+    up(db) {
+      db.exec('CREATE TABLE IF NOT EXISTS rate_limits(bucket_key TEXT PRIMARY KEY, started_at INTEGER NOT NULL, request_count INTEGER NOT NULL)');
+    }
   }
 ];
 

@@ -34,13 +34,14 @@ test('server close is idempotent and stops background cleanup once', async () =>
   assert.equal(closes, 1); assert.equal(stops, 1);
 });
 
-test('standalone cleanup closes its database on success and failure', () => {
+test('standalone cleanup closes its database on success and failure', async () => {
   let closes = 0; const db = { close() { closes += 1; } };
-  assert.deepEqual(runMediaCleanup({ env: {}, openDatabaseImpl: () => db, cleanupImpl: () => ({ scanned: 4, removed: 1, skipped: 3 }) }), { scanned: 4, removed: 1, skipped: 3 });
+  const storage = { async health() {} };
+  assert.deepEqual(await runMediaCleanup({ env: {}, openDatabaseImpl: () => db, storage, cleanupImpl: () => ({ scanned: 4, removed: 1, skipped: 3 }) }), { scanned: 4, removed: 1, skipped: 3 });
   assert.equal(closes, 1);
-  assert.throws(() => runMediaCleanup({ env: {}, openDatabaseImpl: () => db, cleanupImpl() { throw new Error('CLEANUP_FAILED'); } }), /CLEANUP_FAILED/);
+  await assert.rejects(runMediaCleanup({ env: {}, openDatabaseImpl: () => db, storage, cleanupImpl() { throw new Error('CLEANUP_FAILED'); } }), /CLEANUP_FAILED/);
   assert.equal(closes, 2);
-  assert.throws(() => runMediaCleanup({ env: {}, openDatabaseImpl: () => ({ close() { throw new Error('CLOSE_FAILED'); } }), cleanupImpl: () => ({ scanned: 0, removed: 0, skipped: 0 }) }), /CLOSE_FAILED/);
+  await assert.rejects(runMediaCleanup({ env: {}, openDatabaseImpl: () => ({ close() { throw new Error('CLOSE_FAILED'); } }), storage, cleanupImpl: () => ({ scanned: 0, removed: 0, skipped: 0 }) }), /CLOSE_FAILED/);
 });
 
 const dataDir = mkdtempSync(join(tmpdir(), 'birdfolio-acceptance-'));

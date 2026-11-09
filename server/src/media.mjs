@@ -1,6 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readFileSync, unlinkSync } from 'node:fs';
 
 export const MAX_MEDIA_BYTES = 8 * 1024 * 1024;
 export const MAX_IMAGE_PIXELS = 24_000_000;
@@ -109,24 +108,37 @@ export function sanitizeImageBuffer(buffer, mime) {
   return buffer;
 }
 
-export function saveMedia({ dataDir, db, userId, buffer, mime, ttlMs = 60 * 60 * 1000 }) {
+export async function saveMedia({ db, storage, userId, buffer, mime, ttlMs = 60 * 60 * 1000 }) {
   const info = validateImageBuffer(buffer, mime);
   buffer = sanitizeImageBuffer(buffer, info.mime);
   const id = `media-${Date.now()}-${randomBytes(8).toString('hex')}`;
   const extension = info.mime === 'image/png' ? 'png' : info.mime === 'image/webp' ? 'webp' : 'jpg';
-  const uploads = join(dataDir, 'uploads'); mkdirSync(uploads, { recursive: true });
-  const fileName = `${id}.${extension}`; const filePath = join(uploads, fileName); writeFileSync(filePath, buffer, { flag: 'wx' });
+  const fileName = `${id}.${extension}`;
+  let stored;
+  try { stored = await storage.putObject(fileName, buffer, info.mime); }
+  catch { throw new Error('MEDIA_STORAGE_UNAVAILABLE'); }
   const createdAt = Date.now(); const expiresAt = createdAt + ttlMs;
-  db.prepare(`INSERT INTO media(id,user_id,file_name,mime_type,byte_size,file_path,created_at,expires_at,deleted_at)
-    VALUES(?,?,?,?,?,?,?,?,0)`).run(id, userId, fileName, info.mime, buffer.length, filePath, createdAt, expiresAt);
+  try {
+    await db.prepare(`INSERT INTO media(id,user_id,file_name,mime_type,byte_size,file_path,created_at,expires_at,deleted_at)
+      VALUES(?,?,?,?,?,?,?,?,0)`).run(id, userId, fileName, info.mime, buffer.length, stored.locator || fileName, createdAt, expiresAt);
+  } catch (error) {
+    try { await storage.deleteObject(fileName); } catch { /* preserve database failure */ }
+    throw error;
+  }
   return { id, mimeType: info.mime, byteSize: buffer.length, width: info.width, height: info.height, expiresAt, url: `/media/${fileName}` };
 }
 
-export function getMedia(db, dataDir, mediaId, userId, { allowExpired = false } = {}) {
-  const row = db.prepare('SELECT * FROM media WHERE id=? AND user_id=? AND deleted_at=0').get(mediaId, userId);
+export async function getMedia(db, storage, mediaId, userId, { allowExpired = false } = {}) {
+  const row = await db.prepare('SELECT * FROM media WHERE id=? AND user_id=? AND deleted_at=0').get(mediaId, userId);
   if (!row || (!allowExpired && row.expires_at <= Date.now())) return null;
-  if (!existsSync(row.file_path)) return null;
-  return { row, buffer: readFileSync(row.file_path) };
+  const buffer = await storage.getObject(row.file_name);
+  return buffer ? { row, buffer } : null;
+}
+
+export async function removeStoredMedia(storage, row) {
+  if (!row?.file_name) return true;
+  try { return await storage.deleteObject(row.file_name); }
+  catch { return false; }
 }
 
 export function removeMediaFile(row) {
