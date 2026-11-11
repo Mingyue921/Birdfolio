@@ -4,6 +4,13 @@ import { ObservationService } from '../main/ets/services/ObservationService';
 import { SyncQueueService } from '../main/ets/services/SyncQueueService';
 import { JournalService } from '../main/ets/services/JournalService';
 import { Observation } from '../main/ets/models/BirdModels';
+import { PersistencePolicy } from '../main/ets/persistence/PersistencePolicy';
+import { MediaAssetService } from '../main/ets/media/MediaAssetService';
+import { AuthSession, PrivacySettings } from '../main/ets/models/BetaModels';
+import { AuthSessionPolicy } from '../main/ets/services/AuthSessionPolicy';
+import { PrivacyPolicy, PRIVACY_POLICY_VERSION } from '../main/ets/services/PrivacyPolicy';
+import { ReleaseLogPolicy } from '../main/ets/services/ReleaseLogPolicy';
+import { LegacyPreferencesReader } from '../main/ets/services/LegacyPreferencesReader';
 
 export default function localUnitTest() {
   describe('localUnitTest', () => {
@@ -251,6 +258,112 @@ export default function localUnitTest() {
       expect(title?.x).assertEqual(65);
       const emptied = JournalService.deletePage(templated, 0);
       expect(emptied.pages.length).assertEqual(1);
+    });
+    it('normalizesLocalMetadataAndMediaReferences', 0, () => {
+      const fallback = PersistencePolicy.localMeta(undefined, 1000);
+      expect(fallback.version).assertEqual(1);
+      expect(fallback.updatedAt).assertEqual(1000);
+      expect(fallback.syncStatus).assertEqual('local');
+      const ids = PersistencePolicy.uniqueAssetIds(['asset-a', '', 'asset-a', 'asset-b']);
+      expect(ids.length).assertEqual(2);
+      expect(ids[0]).assertEqual('asset-a');
+      expect(ids[1]).assertEqual('asset-b');
+      expect(PersistencePolicy.orphanCutoff(10000, 2500)).assertEqual(7500);
+    });
+    it('keepsSharedMediaReferencesPerOwner', 0, () => {
+      const first = ObservationService.normalizeObservation(INITIAL_OBSERVATIONS[0]);
+      const second = ObservationService.normalizeObservation(INITIAL_OBSERVATIONS[1]);
+      first.photoAssetIds = ['shared', 'first-only', 'shared'];
+      second.photoAssetIds = ['shared'];
+      const owners = MediaAssetService.observationReferences([first, second]);
+      expect(owners.size).assertEqual(2);
+      expect(owners.get(first.id)?.length).assertEqual(2);
+      expect(owners.get(second.id)?.length).assertEqual(1);
+      expect(owners.get(first.id)?.[0]).assertEqual('shared');
+    });
+    it('keepsOneThousandObservationRecordsStable', 0, () => {
+      const observations: Observation[] = [];
+      for (let index = 0; index < 1000; index++) {
+        const item = ObservationService.createObservation({ speciesId: 'egret', countText: '1', placeName: '地点' + index.toString(),
+          audioNote: '', note: '', fuzzyLocation: true, photos: [], existingCount: index });
+        observations.push(item);
+      }
+      expect(observations.length).assertEqual(1000);
+      expect(ObservationService.totalBirdCount(observations)).assertEqual(1000);
+      expect(ObservationService.placeCount(observations)).assertEqual(1000);
+    });
+    it('normalizesAndParsesSecureAuthSessions', 0, () => {
+      const source: AuthSession = {
+        accessToken: '  access-token  ', refreshToken: 'refresh-token', expiresAt: 123456,
+        userId: '  user-1  ', email: ' user@example.com ', displayName: 'Bird User'
+      };
+      const normalized = AuthSessionPolicy.normalize(source);
+      expect(normalized?.accessToken).assertEqual('access-token');
+      expect(normalized?.userId).assertEqual('user-1');
+      expect(normalized?.email).assertEqual('user@example.com');
+      expect(AuthSessionPolicy.parse(JSON.stringify(source))?.refreshToken).assertEqual('refresh-token');
+      expect(AuthSessionPolicy.parse('broken')).assertNull();
+      const missingAccess: AuthSession = {
+        accessToken: ' ', refreshToken: source.refreshToken, expiresAt: source.expiresAt,
+        userId: source.userId, email: source.email, displayName: source.displayName
+      };
+      const missingUser: AuthSession = {
+        accessToken: source.accessToken, refreshToken: source.refreshToken, expiresAt: source.expiresAt,
+        userId: ' ', email: source.email, displayName: source.displayName
+      };
+      expect(AuthSessionPolicy.normalize(missingAccess)).assertNull();
+      expect(AuthSessionPolicy.normalize(missingUser)).assertNull();
+    });
+    it('checksAuthSessionFreshnessWithoutExposingTokens', 0, () => {
+      const base: AuthSession = {
+        accessToken: 'access-token', refreshToken: 'refresh-token', userId: 'user-1',
+        email: 'user@example.com', displayName: '', expiresAt: Date.now() + 120000
+      };
+      expect(AuthSessionPolicy.accessToken(base)).assertEqual('access-token');
+      expect(AuthSessionPolicy.isAccessTokenFresh(base)).assertTrue();
+      const expired: AuthSession = {
+        accessToken: base.accessToken, refreshToken: base.refreshToken, userId: base.userId,
+        email: base.email, displayName: base.displayName, expiresAt: Date.now() - 1
+      };
+      expect(AuthSessionPolicy.isAccessTokenFresh(expired)).assertFalse();
+      expect(AuthSessionPolicy.isAccessTokenFresh(null)).assertFalse();
+    });
+    it('keepsIdentificationAndCutoutConsentIndependent', 0, () => {
+      const now = Date.now();
+      const settings: PrivacySettings = {
+        aiPhotoUploadAgreed: true,
+        diagnosticsEnabled: false,
+        consents: [
+          { purpose: 'identification', policyVersion: PRIVACY_POLICY_VERSION, agreedAt: now, revokedAt: 0 },
+          { purpose: 'cutout', policyVersion: PRIVACY_POLICY_VERSION, agreedAt: 0, revokedAt: now }
+        ]
+      };
+      expect(PrivacyPolicy.hasActiveConsent(settings, 'identification')).assertTrue();
+      expect(PrivacyPolicy.hasActiveConsent(settings, 'cutout')).assertFalse();
+      expect(PrivacyPolicy.latestRecord(settings, 'cutout')?.revokedAt).assertEqual(now);
+    });
+    it('rejectsOutdatedOrMalformedConsentRecords', 0, () => {
+      const outdated: PrivacySettings = {
+        aiPhotoUploadAgreed: false,
+        diagnosticsEnabled: false,
+        consents: [{ purpose: 'identification', policyVersion: 'old-policy', agreedAt: 1, revokedAt: 0 }]
+      };
+      expect(PrivacyPolicy.hasActiveConsent(outdated, 'identification')).assertFalse();
+      expect(PrivacyPolicy.parseConsents('broken').length).assertEqual(0);
+      expect(PrivacyPolicy.parseConsents('[{"purpose":"unknown"}]').length).assertEqual(0);
+      expect(PrivacyPolicy.parseConsents('[{"purpose":"cutout","policyVersion":"v","agreedAt":5,"revokedAt":0}]').length).assertEqual(1);
+    });
+    it('sanitizesReleaseLogEvents', 0, () => {
+      expect(ReleaseLogPolicy.event('auth.login_success')).assertEqual('auth.login_success');
+      expect(ReleaseLogPolicy.event('photo uri: file:///private/user.jpg')).assertEqual('photo_uri__file____private_user.jpg');
+      expect(ReleaseLogPolicy.event('')).assertEqual('unknown');
+      expect(ReleaseLogPolicy.event('x'.repeat(100)).length).assertEqual(80);
+    });
+    it('readsEscapedLegacyPreferenceString', 0, () => {
+      const source = '<?xml version="1.0" encoding="UTF-8"?>' +
+        '<preferences version="1.0"><string key="books">[{&quot;title&quot;:&quot;鸟&amp;自然&quot;}]</string></preferences>';
+      expect(LegacyPreferencesReader.parseSource(source, 'books')).assertEqual('[{"title":"鸟&自然"}]');
+      expect(LegacyPreferencesReader.parseSource(source, 'missing')).assertEqual('');
     });
   });
 }

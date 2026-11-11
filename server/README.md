@@ -1,6 +1,6 @@
-# Birdfolio 本地 Beta 服务
+# Birdfolio Beta 服务
 
-这是 Birdfolio 的 Node.js + SQLite 服务端，供开发机和同一局域网的 HarmonyOS 真机演示使用。它不是公网生产部署方案：当前监听 HTTP 开发端口，正式上线前必须放在 HTTPS 反向代理后，并完成认证、限流、备份和内容治理。
+开发环境继续使用 Node.js + SQLite；生产适配层支持 PostgreSQL、华为云 OBS、邮件网关和 HTTPS 入口。仓库只提供可部署工程与配置示例，不会创建或购买云资源。
 
 ## 要求
 
@@ -25,6 +25,8 @@ npm start
 
 ```text
 GET http://127.0.0.1:8787/api/health
+GET http://127.0.0.1:8787/health/live
+GET http://127.0.0.1:8787/health/ready
 ```
 
 ## 环境变量
@@ -48,6 +50,8 @@ MAIL_PROVIDER_TOKEN=受保护的服务端令牌
 ```
 
 三项 `VISION_*` 必须全部填写才进入 provider 模式。`npm run check:release` 会额外要求视觉端点使用 HTTPS、`REQUIRE_AUTH=true` 和明确的 `CORS_ORIGIN`；它不会打印密钥。正式环境应由反向代理终止 TLS，并配置 `MAIL_PROVIDER_URL` 投递验证码；没有邮件网关时服务会明确返回不可用，不会假装验证码已发送。`AI_DAILY_LIMIT` 默认 10 次/账号/24 小时；`AUTH_DEBUG_CODES` 和 `AUTH_DEV_CODE` 仅用于本地测试。
+
+正式预检还要求 PostgreSQL、私有 OBS、邮件服务、`DEMO_MODE=false` 与 `HTTPS_PROXY=true`，任一配置缺失都会拒绝 Release 启动。完整拓扑与本地 PostgreSQL Compose 使用方法见 `infra/README.md`。
 
 ## API 概览
 
@@ -106,6 +110,8 @@ npm run test
 npm run test:ci
 npm run check:env
 npm run check:release
+npm run db:migrate
+npm run db:backup
 ```
 
 运行时数据位于 `data/`：SQLite 数据库、WAL 文件、上传图片和 GBIF 缓存均被忽略。数据库结构由 `src/migrations.mjs` 中的编号迁移管理；服务启动时自动执行尚未应用的迁移。未被帖子引用的过期上传会在启动时和 `MEDIA_CLEANUP_INTERVAL_MS` 周期内清理，上传有效期由 `MEDIA_TTL_MS` 控制。服务日志为单行 JSON，包含请求 ID、状态码和耗时，便于日志采集系统解析。正式部署至少需要定期备份数据库、配置 HTTPS/CORS、认证和请求限流；本地服务不应直接暴露到公网。
@@ -114,6 +120,12 @@ npm run check:release
 
 ```powershell
 npm run cleanup:media
+```
+
+恢复是破坏性操作，只能在应用停止写入且已验证备份后执行；命令必须同时提供 `CONFIRM_RESTORE=RESTORE_BIRDFOLIO` 与 `--from=<备份文件>`：
+
+```powershell
+npm run db:restore -- --from=C:\protected-backups\birdfolio.dump
 ```
 
 ## 密钥和许可证

@@ -174,7 +174,18 @@ export interface AccountExportResult {
   comments?: Object[];
 }
 
+export type PrivacyPurpose = 'identification' | 'cutout';
+
+export interface ConsentRecord {
+  purpose: PrivacyPurpose;
+  policyVersion: string;
+  agreedAt: number;
+  revokedAt: number;
+}
+
 export interface PrivacySettings {
+  /** Compatibility projection for existing identification UI. */
   aiPhotoUploadAgreed: boolean;
   diagnosticsEnabled: boolean;
+  consents: ConsentRecord[];
 }

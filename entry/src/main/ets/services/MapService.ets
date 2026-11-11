@@ -1,11 +1,6 @@
 import { AuthService } from '@tencentmap/base';
-import { LogLevel } from '@tencentmap/base';
-import { LogConfig } from '@tencentmap/map';
-import { hilog } from '@kit.PerformanceAnalysisKit';
 import { TENCENT_MAP_KEY } from './MapSecret';
-
-const MAP_LOG_DOMAIN: number = 0x0000;
-const MAP_LOG_TAG: string = 'BirdfolioMap';
+import { SafeLogger } from './SafeLogger';
 
 /**
  * Tencent Map authentication entry point.
@@ -19,18 +14,12 @@ export class MapService {
     if (MapService.initialized) return true;
     const key: string = TENCENT_MAP_KEY.trim();
     if (key.length === 0 || key === MapService.TEMPLATE_KEY) {
-      hilog.warn(MAP_LOG_DOMAIN, MAP_LOG_TAG, 'Tencent Map key is not configured');
+      SafeLogger.warn('BirdfolioMap', 'map_key_not_configured');
       return false;
     }
-    LogConfig.initLogOptions({
-      sdkLogOn: true,
-      sdkLogLevel: LogLevel.DEBUG,
-      engineLogOn: true,
-      engineLogLevel: LogLevel.DEBUG
-    });
     AuthService.getInstance().setKey(key);
     MapService.initialized = true;
-    hilog.info(MAP_LOG_DOMAIN, MAP_LOG_TAG, 'Tencent Map key configured and SDK logging enabled');
+    SafeLogger.info('BirdfolioMap', 'map_key_configured');
     return true;
   }
 
