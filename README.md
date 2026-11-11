@@ -4,6 +4,21 @@ Birdfolio 是面向个人观鸟和自然教育活动的 HarmonyOS 原生应用�
 
 当前目标是可控的商业 Beta，而不是宣称已经完成大规模商业上线：数据默认保存在本机，用户主动开启同步后才上传；AI 只返回候选，必须由用户确认后才生成观察记录。
 
+## Huawei ICT competition demo
+
+`web/` contains the responsive Birdfolio Cloud competition experience. It reuses the same authenticated media, identification, confirmation and observation APIs as the HarmonyOS client; it does not fabricate AI candidates when the provider is unavailable.
+
+```powershell
+npm --prefix server ci
+npm --prefix server test
+npm --prefix web ci
+npm --prefix web test
+npm --prefix web run build
+npm --prefix web run test:e2e
+```
+
+The target competition topology is ECS + RDS PostgreSQL + DCS Redis + private OBS + Huawei Cloud MaaS. Deployment examples live in `infra/`, while the API contract, acceptance checklist, three-minute script and truthful CodeArts evidence template live in `docs/competition/`. Cloud resources, CodeArts screenshots, MaaS credentials and the public HTTPS URL must be created and recorded by the team; the repository intentionally contains no credentials or fabricated evidence.
+
 ## 当前能力
 
 | 模块 | 当前状态 |
@@ -23,8 +38,9 @@ Birdfolio 是面向个人观鸟和自然教育活动的 HarmonyOS 原生应用�
 - 客户端：HarmonyOS、ArkTS、ArkUI、NetworkKit、MediaLibraryKit、`geoLocationManager`、Preferences。
 - 地图：腾讯地图 HarmonyOS SDK（`@tencentmap/map`、`@tencentmap/base`），保留静态降级。
 - 手账：ArkWeb 内置本地 HTML/JavaScript 编辑器和 Fabric.js 5.3.0。
-- 后端：Node.js 22.5+（开发机为 Node.js 24）、原生 `node:http`、`node:sqlite`、SQLite WAL、REST API。
-- AI：服务端 OpenAI-compatible 视觉模型适配器；不在客户端保存模型 Key，也不宣称自研训练模型。
+- Web：React、TypeScript、Vite、React Router、TanStack Query、ECharts、Vitest、Playwright。
+- 后端：Node.js 22.5+（开发机为 Node.js 24）、原生 `node:http`、SQLite/PostgreSQL、Redis/DCS、REST API。
+- AI：服务端 OpenAI-compatible Huawei MaaS 视觉适配器；不在客户端保存模型 Key，也不宣称自研训练模型。
 
 ## 本地开发
 
