@@ -5,11 +5,12 @@ import { ObservationService } from './ObservationService';
 import { BirdfolioDatabase } from '../persistence/BirdfolioDatabase';
 import { PersistedPayload } from '../models/PersistenceModels';
 import { MediaAssetService } from '../media/MediaAssetService';
+import { LegacyPreferencesReader } from './LegacyPreferencesReader';
 
 const STORE_NAME = 'birdfolio_store';
 const OBSERVATIONS_KEY = 'observations';
 // v1 could mark an empty migration complete before legacy Preferences became readable.
-const OBSERVATIONS_MIGRATION_KEY = 'observations-v2';
+const OBSERVATIONS_MIGRATION_KEY = 'observations-v3';
 
 export class ObservationStorage {
   static async load(context: common.UIAbilityContext, fallback: Observation[]): Promise<Observation[]> {
@@ -81,11 +82,14 @@ export class ObservationStorage {
   }
 
   private static async loadLegacy(context: common.UIAbilityContext, fallback: Observation[]): Promise<Observation[]> {
+    let raw = '';
     try {
       const store = await preferences.getPreferences(context, { name: STORE_NAME });
-      const raw = await store.get(OBSERVATIONS_KEY, '');
-      return typeof raw === 'string' ? ObservationService.parseStoredObservations(raw, fallback) : fallback;
-    } catch (_error) { return fallback; }
+      const stored = await store.get(OBSERVATIONS_KEY, '');
+      if (typeof stored === 'string') raw = stored;
+    } catch (_error) {}
+    if (raw.length === 0) raw = LegacyPreferencesReader.readString(context, STORE_NAME, OBSERVATIONS_KEY);
+    return raw.length > 0 ? ObservationService.parseStoredObservations(raw, fallback) : fallback;
   }
 
   private static async saveLegacy(context: common.UIAbilityContext, observations: Observation[]): Promise<boolean> {

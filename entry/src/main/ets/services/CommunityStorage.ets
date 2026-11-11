@@ -4,11 +4,12 @@ import { CommunityPost, PostDraft } from '../models/BirdModels';
 import { BirdfolioDatabase } from '../persistence/BirdfolioDatabase';
 import { PersistedPayload } from '../models/PersistenceModels';
 import { MediaAssetService } from '../media/MediaAssetService';
+import { LegacyPreferencesReader } from './LegacyPreferencesReader';
 
 const STORE_NAME = 'birdfolio_community';
 const POSTS_KEY = 'posts';
 const DRAFTS_KEY = 'drafts';
-const DRAFTS_MIGRATION_KEY = 'drafts-v2';
+const DRAFTS_MIGRATION_KEY = 'drafts-v3';
 
 export class CommunityStorage {
   static async loadPosts(context: common.UIAbilityContext): Promise<CommunityPost[]> {
@@ -87,7 +88,10 @@ export class CommunityStorage {
   }
 
   private static async loadDraftsLegacy(context: common.UIAbilityContext): Promise<PostDraft[]> {
-    try { const store = await preferences.getPreferences(context, { name: STORE_NAME }); const raw = await store.get(DRAFTS_KEY, ''); return typeof raw === 'string' ? CommunityStorage.parseDrafts(raw) : []; } catch (_error) { return []; }
+    let raw = '';
+    try { const store = await preferences.getPreferences(context, { name: STORE_NAME }); const stored = await store.get(DRAFTS_KEY, ''); if (typeof stored === 'string') raw = stored; } catch (_error) {}
+    if (raw.length === 0) raw = LegacyPreferencesReader.readString(context, STORE_NAME, DRAFTS_KEY);
+    return raw.length > 0 ? CommunityStorage.parseDrafts(raw) : [];
   }
 
   private static async saveDraftsLegacy(context: common.UIAbilityContext, drafts: PostDraft[]): Promise<boolean> {

@@ -3,10 +3,11 @@ import { preferences } from '@kit.ArkData';
 import { SyncJob } from '../models/SyncModels';
 import { BirdfolioDatabase } from '../persistence/BirdfolioDatabase';
 import { PersistedPayload } from '../models/PersistenceModels';
+import { LegacyPreferencesReader } from './LegacyPreferencesReader';
 
 const STORE_NAME = 'birdfolio_store';
 const SYNC_JOBS_KEY = 'syncJobs';
-const SYNC_JOBS_MIGRATION_KEY = 'syncJobs-v2';
+const SYNC_JOBS_MIGRATION_KEY = 'syncJobs-v3';
 
 export class SyncQueueStorage {
   static async load(context: common.UIAbilityContext): Promise<SyncJob[]> {
@@ -61,7 +62,10 @@ export class SyncQueueStorage {
   }
 
   private static async loadLegacy(context: common.UIAbilityContext): Promise<SyncJob[]> {
-    try { const store = await preferences.getPreferences(context, { name: STORE_NAME }); const raw = await store.get(SYNC_JOBS_KEY, ''); return typeof raw === 'string' ? SyncQueueStorage.parse(raw) : []; } catch (_error) { return []; }
+    let raw = '';
+    try { const store = await preferences.getPreferences(context, { name: STORE_NAME }); const stored = await store.get(SYNC_JOBS_KEY, ''); if (typeof stored === 'string') raw = stored; } catch (_error) {}
+    if (raw.length === 0) raw = LegacyPreferencesReader.readString(context, STORE_NAME, SYNC_JOBS_KEY);
+    return raw.length > 0 ? SyncQueueStorage.parse(raw) : [];
   }
 
   private static async saveLegacy(context: common.UIAbilityContext, jobs: SyncJob[]): Promise<boolean> {

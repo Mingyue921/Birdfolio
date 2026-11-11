@@ -5,10 +5,11 @@ import { JournalService } from './JournalService';
 import { BirdfolioDatabase } from '../persistence/BirdfolioDatabase';
 import { PersistedPayload } from '../models/PersistenceModels';
 import { MediaAssetService } from '../media/MediaAssetService';
+import { LegacyPreferencesReader } from './LegacyPreferencesReader';
 
 const STORE_NAME = 'birdfolio_journals';
 const BOOKS_KEY = 'books';
-const BOOKS_MIGRATION_KEY = 'books-v2';
+const BOOKS_MIGRATION_KEY = 'books-v3';
 
 export class JournalStorage {
   static async load(context: common.UIAbilityContext): Promise<JournalBook[]> {
@@ -67,7 +68,10 @@ export class JournalStorage {
   }
 
   private static async loadLegacy(context: common.UIAbilityContext): Promise<JournalBook[]> {
-    try { const store = await preferences.getPreferences(context, { name: STORE_NAME }); const raw = await store.get(BOOKS_KEY, ''); return typeof raw === 'string' ? JournalService.parse(raw) : []; } catch (_error) { return []; }
+    let raw = '';
+    try { const store = await preferences.getPreferences(context, { name: STORE_NAME }); const stored = await store.get(BOOKS_KEY, ''); if (typeof stored === 'string') raw = stored; } catch (_error) {}
+    if (raw.length === 0) raw = LegacyPreferencesReader.readString(context, STORE_NAME, BOOKS_KEY);
+    return raw.length > 0 ? JournalService.parse(raw) : [];
   }
 
   private static async saveLegacy(context: common.UIAbilityContext, books: JournalBook[]): Promise<boolean> {

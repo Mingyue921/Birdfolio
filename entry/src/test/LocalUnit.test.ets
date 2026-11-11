@@ -10,6 +10,7 @@ import { AuthSession, PrivacySettings } from '../main/ets/models/BetaModels';
 import { AuthSessionPolicy } from '../main/ets/services/AuthSessionPolicy';
 import { PrivacyPolicy, PRIVACY_POLICY_VERSION } from '../main/ets/services/PrivacyPolicy';
 import { ReleaseLogPolicy } from '../main/ets/services/ReleaseLogPolicy';
+import { LegacyPreferencesReader } from '../main/ets/services/LegacyPreferencesReader';
 
 export default function localUnitTest() {
   describe('localUnitTest', () => {
@@ -357,6 +358,12 @@ export default function localUnitTest() {
       expect(ReleaseLogPolicy.event('photo uri: file:///private/user.jpg')).assertEqual('photo_uri__file____private_user.jpg');
       expect(ReleaseLogPolicy.event('')).assertEqual('unknown');
       expect(ReleaseLogPolicy.event('x'.repeat(100)).length).assertEqual(80);
+    });
+    it('readsEscapedLegacyPreferenceString', 0, () => {
+      const source = '<?xml version="1.0" encoding="UTF-8"?>' +
+        '<preferences version="1.0"><string key="books">[{&quot;title&quot;:&quot;鸟&amp;自然&quot;}]</string></preferences>';
+      expect(LegacyPreferencesReader.parseSource(source, 'books')).assertEqual('[{"title":"鸟&自然"}]');
+      expect(LegacyPreferencesReader.parseSource(source, 'missing')).assertEqual('');
     });
   });
 }
