@@ -24,7 +24,7 @@ Birdfolio 是面向个人观鸟和自然教育活动的 HarmonyOS 原生应用�
 - 地图：腾讯地图 HarmonyOS SDK（`@tencentmap/map`、`@tencentmap/base`），保留静态降级。
 - 手账：ArkWeb 内置本地 HTML/JavaScript 编辑器和 Fabric.js 5.3.0。
 - 后端：Node.js 22.5+（开发机为 Node.js 24）、原生 `node:http`、`node:sqlite`、SQLite WAL、REST API。
-- AI：服务端 OpenAI-compatible 视觉模型适配器；不在客户端保存模型 Key，也不宣称自研训练模型。
+- AI：服务端 OpenAI-compatible 视觉模型适配器。
 
 ## 本地开发
 
