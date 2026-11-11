@@ -6,25 +6,23 @@ import { PersistedPayload } from '../models/PersistenceModels';
 
 const STORE_NAME = 'birdfolio_store';
 const SYNC_JOBS_KEY = 'syncJobs';
+const SYNC_JOBS_MIGRATION_KEY = 'syncJobs-v2';
 
 export class SyncQueueStorage {
   static async load(context: common.UIAbilityContext): Promise<SyncJob[]> {
     try {
       const rows = await BirdfolioDatabase.loadPayloads(context, 'sync_jobs');
-      if (rows.length > 0) return SyncQueueStorage.parseRows(rows);
-      if (await BirdfolioDatabase.isMigrated(context, SYNC_JOBS_KEY)) return [];
-      const store = await preferences.getPreferences(context, { name: STORE_NAME });
-      const raw = await store.get(SYNC_JOBS_KEY, '');
-      if (typeof raw === 'string' && raw.length > 0) {
-        const migrated = SyncQueueStorage.parse(raw);
-        await SyncQueueStorage.saveDatabase(context, migrated);
-        return migrated;
+      const current = SyncQueueStorage.parseRows(rows);
+      if (!await BirdfolioDatabase.isMigrated(context, SYNC_JOBS_MIGRATION_KEY)) {
+        const legacy = await SyncQueueStorage.loadLegacy(context);
+        const recovered = SyncQueueStorage.merge(current, legacy);
+        await SyncQueueStorage.saveDatabase(context, recovered);
+        return recovered;
       }
-      await SyncQueueStorage.saveDatabase(context, []);
+      return current;
     } catch (error) {
       return await SyncQueueStorage.loadLegacy(context);
     }
-    return [];
   }
 
   static async save(context: common.UIAbilityContext, jobs: SyncJob[]): Promise<boolean> {
@@ -35,13 +33,22 @@ export class SyncQueueStorage {
 
   private static async saveDatabase(context: common.UIAbilityContext, jobs: SyncJob[]): Promise<void> {
     const rows: PersistedPayload[] = jobs.map((job: SyncJob): PersistedPayload => ({ id: job.id, payload: JSON.stringify(job), updatedAt: SyncQueueStorage.timestamp(job.updatedAt) }));
-    await BirdfolioDatabase.replacePayloadsAndMarkMigrated(context, 'sync_jobs', rows, SYNC_JOBS_KEY);
+    await BirdfolioDatabase.replacePayloadsAndMarkMigrated(context, 'sync_jobs', rows, SYNC_JOBS_MIGRATION_KEY);
   }
 
   private static parseRows(rows: PersistedPayload[]): SyncJob[] {
     const jobs: SyncJob[] = [];
     rows.forEach((row: PersistedPayload) => { try { const job = JSON.parse(row.payload) as SyncJob; if (job && job.id) jobs.push(job); } catch (_error) {} });
     return jobs;
+  }
+
+  private static merge(current: SyncJob[], legacy: SyncJob[]): SyncJob[] {
+    const merged = legacy.slice();
+    current.forEach((item: SyncJob) => {
+      const index = merged.findIndex((candidate: SyncJob) => candidate.id === item.id);
+      if (index >= 0) merged[index] = item; else merged.push(item);
+    });
+    return merged;
   }
 
   private static parse(raw: string): SyncJob[] {

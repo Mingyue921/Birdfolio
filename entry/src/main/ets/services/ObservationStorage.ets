@@ -8,28 +8,25 @@ import { MediaAssetService } from '../media/MediaAssetService';
 
 const STORE_NAME = 'birdfolio_store';
 const OBSERVATIONS_KEY = 'observations';
+// v1 could mark an empty migration complete before legacy Preferences became readable.
+const OBSERVATIONS_MIGRATION_KEY = 'observations-v2';
 
 export class ObservationStorage {
   static async load(context: common.UIAbilityContext, fallback: Observation[]): Promise<Observation[]> {
     try {
       const rows = await BirdfolioDatabase.loadPayloads(context, 'observations');
-      if (rows.length > 0) {
-        const parsed = ObservationStorage.parseRows(rows);
-        return parsed.length > 0 ? parsed : await ObservationStorage.loadLegacy(context, fallback);
+      const current = ObservationStorage.parseRows(rows);
+      if (!await BirdfolioDatabase.isMigrated(context, OBSERVATIONS_MIGRATION_KEY)) {
+        const legacy = await ObservationStorage.loadLegacy(context, []);
+        const recovered = ObservationStorage.merge(current, legacy);
+        const next = recovered.length > 0 ? recovered : fallback;
+        await ObservationStorage.saveDatabase(context, next);
+        return next;
       }
-      if (await BirdfolioDatabase.isMigrated(context, OBSERVATIONS_KEY)) return [];
-      const store = await preferences.getPreferences(context, { name: STORE_NAME });
-      const raw = await store.get(OBSERVATIONS_KEY, '');
-      if (typeof raw === 'string' && raw.length > 0) {
-        const migrated = ObservationService.parseStoredObservations(raw, fallback);
-        await ObservationStorage.saveDatabase(context, migrated);
-        return migrated;
-      }
-      await ObservationStorage.saveDatabase(context, fallback);
+      return current;
     } catch (error) {
       return await ObservationStorage.loadLegacy(context, fallback);
     }
-    return fallback;
   }
 
   static async save(context: common.UIAbilityContext, observations: Observation[]): Promise<boolean> {
@@ -48,7 +45,7 @@ export class ObservationStorage {
     }));
     const owners = MediaAssetService.observationReferences(prepared);
     await BirdfolioDatabase.replacePayloadsReferencesAndMarkMigrated(context, 'observations', rows,
-      OBSERVATIONS_KEY, 'observation', owners);
+      OBSERVATIONS_MIGRATION_KEY, 'observation', owners);
     prepared.forEach((saved: Observation, index: number) => {
       observations[index].photos = saved.photos;
       observations[index].photoAssetIds = saved.photoAssetIds;
@@ -67,6 +64,15 @@ export class ObservationStorage {
       } catch (_error) {}
     });
     return observations;
+  }
+
+  private static merge(current: Observation[], legacy: Observation[]): Observation[] {
+    const merged = legacy.slice();
+    current.forEach((item: Observation) => {
+      const index = merged.findIndex((candidate: Observation) => candidate.id === item.id);
+      if (index >= 0) merged[index] = item; else merged.push(item);
+    });
+    return merged;
   }
 
   private static timestamp(value: string | undefined): number {

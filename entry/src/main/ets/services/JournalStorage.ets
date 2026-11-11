@@ -8,16 +8,20 @@ import { MediaAssetService } from '../media/MediaAssetService';
 
 const STORE_NAME = 'birdfolio_journals';
 const BOOKS_KEY = 'books';
+const BOOKS_MIGRATION_KEY = 'books-v2';
 
 export class JournalStorage {
   static async load(context: common.UIAbilityContext): Promise<JournalBook[]> {
     try {
       const rows = await BirdfolioDatabase.loadPayloads(context, 'journal_books');
-      if (rows.length > 0) return JournalStorage.parseRows(rows);
-      if (await BirdfolioDatabase.isMigrated(context, BOOKS_KEY)) return [];
-      const legacy = await JournalStorage.loadLegacy(context);
-      await JournalStorage.saveDatabase(context, legacy);
-      return legacy;
+      const current = JournalStorage.parseRows(rows);
+      if (!await BirdfolioDatabase.isMigrated(context, BOOKS_MIGRATION_KEY)) {
+        const legacy = await JournalStorage.loadLegacy(context);
+        const recovered = JournalStorage.merge(current, legacy);
+        await JournalStorage.saveDatabase(context, recovered);
+        return recovered;
+      }
+      return current;
     } catch (_error) { return await JournalStorage.loadLegacy(context); }
   }
 
@@ -33,7 +37,7 @@ export class JournalStorage {
     }));
     const owners = MediaAssetService.journalReferences(prepared);
     await BirdfolioDatabase.replacePayloadsReferencesAndMarkMigrated(context, 'journal_books', rows,
-      BOOKS_KEY, 'journal', owners);
+      BOOKS_MIGRATION_KEY, 'journal', owners);
     prepared.forEach((saved: JournalBook, index: number) => {
       books[index].pages = saved.pages;
       books[index].coverImageUri = saved.coverImageUri;
@@ -46,6 +50,15 @@ export class JournalStorage {
       try { const parsed = JSON.parse(row.payload) as JournalBook; if (parsed && parsed.id) books.push(parsed); } catch (_error) {}
     });
     return books;
+  }
+
+  private static merge(current: JournalBook[], legacy: JournalBook[]): JournalBook[] {
+    const merged = legacy.slice();
+    current.forEach((item: JournalBook) => {
+      const index = merged.findIndex((candidate: JournalBook) => candidate.id === item.id);
+      if (index >= 0) merged[index] = item; else merged.push(item);
+    });
+    return merged;
   }
 
   private static timestamp(value: string): number {

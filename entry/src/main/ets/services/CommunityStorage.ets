@@ -8,6 +8,7 @@ import { MediaAssetService } from '../media/MediaAssetService';
 const STORE_NAME = 'birdfolio_community';
 const POSTS_KEY = 'posts';
 const DRAFTS_KEY = 'drafts';
+const DRAFTS_MIGRATION_KEY = 'drafts-v2';
 
 export class CommunityStorage {
   static async loadPosts(context: common.UIAbilityContext): Promise<CommunityPost[]> {
@@ -30,13 +31,14 @@ export class CommunityStorage {
   static async loadDrafts(context: common.UIAbilityContext): Promise<PostDraft[]> {
     try {
       const rows = await BirdfolioDatabase.loadPayloads(context, 'post_drafts');
-      if (rows.length > 0) return CommunityStorage.parseDraftRows(rows);
-      if (await BirdfolioDatabase.isMigrated(context, DRAFTS_KEY)) return [];
-      const store = await preferences.getPreferences(context, { name: STORE_NAME });
-      const raw = await store.get(DRAFTS_KEY, '');
-      const drafts = typeof raw === 'string' ? CommunityStorage.parseDrafts(raw) : [];
-      await CommunityStorage.saveDraftDatabase(context, drafts);
-      return drafts;
+      const current = CommunityStorage.parseDraftRows(rows);
+      if (!await BirdfolioDatabase.isMigrated(context, DRAFTS_MIGRATION_KEY)) {
+        const legacy = await CommunityStorage.loadDraftsLegacy(context);
+        const recovered = CommunityStorage.mergeDrafts(current, legacy);
+        await CommunityStorage.saveDraftDatabase(context, recovered);
+        return recovered;
+      }
+      return current;
     } catch (_error) { return await CommunityStorage.loadDraftsLegacy(context); }
   }
 
@@ -52,7 +54,7 @@ export class CommunityStorage {
     }));
     const owners = MediaAssetService.postDraftReferences(prepared);
     await BirdfolioDatabase.replacePayloadsReferencesAndMarkMigrated(context, 'post_drafts', rows,
-      DRAFTS_KEY, 'postDraft', owners);
+      DRAFTS_MIGRATION_KEY, 'postDraft', owners);
     prepared.forEach((saved: PostDraft, index: number) => {
       drafts[index].imageUri = saved.imageUri;
       drafts[index].imageAssetId = saved.imageAssetId;
@@ -63,6 +65,15 @@ export class CommunityStorage {
     const drafts: PostDraft[] = [];
     rows.forEach((row: PersistedPayload) => { try { const draft = JSON.parse(row.payload) as PostDraft; if (draft && draft.id) drafts.push(draft); } catch (_error) {} });
     return drafts;
+  }
+
+  private static mergeDrafts(current: PostDraft[], legacy: PostDraft[]): PostDraft[] {
+    const merged = legacy.slice();
+    current.forEach((item: PostDraft) => {
+      const index = merged.findIndex((candidate: PostDraft) => candidate.id === item.id);
+      if (index >= 0) merged[index] = item; else merged.push(item);
+    });
+    return merged;
   }
 
   private static parseDrafts(raw: string): PostDraft[] {
