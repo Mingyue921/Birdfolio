@@ -56,10 +56,10 @@ export function required(value, name) {
 export function errorStatus(message) {
   if (message === 'PAYLOAD_TOO_LARGE') return 413;
   if (['AUTH_REQUIRED', 'INVALID_TOKEN', 'INVALID_REFRESH_TOKEN'].includes(message)) return 401;
-  if (['FORBIDDEN', 'ACCOUNT_DELETED'].includes(message)) return 403;
+  if (['FORBIDDEN', 'ACCOUNT_DELETED', 'DEMO_LOGIN_DISABLED'].includes(message)) return 403;
   if (message === 'NOT_FOUND' || message.endsWith('_NOT_FOUND') || message === 'MEDIA_NOT_FOUND' || message === 'IDENTIFY_NOT_FOUND') return 404;
   if (['AUTH_RATE_LIMITED', 'QUOTA_EXCEEDED', 'RATE_LIMITED'].includes(message)) return 429;
-  if (message === 'EMAIL_NOT_CONFIGURED' || message === 'PROVIDER_UNAVAILABLE') return 503;
+  if (message === 'EMAIL_NOT_CONFIGURED' || message === 'PROVIDER_UNAVAILABLE' || message.endsWith('_DEPENDENCY_UNAVAILABLE')) return 503;
   if (message === 'CONFLICT') return 409;
   if (message.startsWith('MISSING_') || message.startsWith('INVALID_') || message === 'MEDIA_REQUIRED' || message === 'AUTH_CODE_EXPIRED' || message === 'AUTH_CODE_LOCKED') return 400;
   return 500;

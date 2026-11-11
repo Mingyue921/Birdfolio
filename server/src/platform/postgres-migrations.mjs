@@ -22,6 +22,14 @@ const migrations = [
       CREATE TABLE IF NOT EXISTS user_blocks (blocker_id TEXT NOT NULL, blocked_user_id TEXT NOT NULL, created_at BIGINT NOT NULL, PRIMARY KEY(blocker_id,blocked_user_id));
       CREATE TABLE IF NOT EXISTS rate_limits (bucket_key TEXT PRIMARY KEY, started_at BIGINT NOT NULL, request_count INTEGER NOT NULL);
     `
+  },
+  {
+    version: 2,
+    name: 'competition_demo_accounts',
+    sql: `CREATE TABLE IF NOT EXISTS demo_accounts (
+      user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      expires_at BIGINT NOT NULL, created_at BIGINT NOT NULL
+    ); CREATE INDEX IF NOT EXISTS demo_accounts_expiry ON demo_accounts(expires_at);`
   }
 ];
 

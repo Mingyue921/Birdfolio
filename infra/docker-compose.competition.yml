@@ -1,0 +1,31 @@
+services:
+  api:
+    build:
+      context: ../server
+    env_file:
+      - ./competition.env
+    restart: unless-stopped
+    expose:
+      - "8787"
+    networks: [birdfolio-private]
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    environment:
+      DEMO_HOST: ${DEMO_HOST}
+      ACME_EMAIL: ${ACME_EMAIL}
+    ports:
+      - "443:443"
+      - "80:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ../web/dist:/srv/web:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [api]
+    networks: [birdfolio-private]
+networks:
+  birdfolio-private:
+volumes:
+  caddy_data:
+  caddy_config:

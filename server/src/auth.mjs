@@ -89,12 +89,22 @@ export function createAuthStore(db, options = {}) {
     return { user: userView(user), userId, email, displayName: user.display_name || '', ...await issueSession(userId) };
   }
 
+  async function createDemoSession(options = {}) {
+    const now = clock(); const lifetime = Math.max(60_000, Number(options.lifetimeMs || 24 * 60 * 60 * 1000));
+    const suffix = randomBytes(10).toString('hex'); const userId = `demo-${suffix}`; const email = `demo-${suffix}@competition.invalid`; const iso = new Date(now).toISOString();
+    await db.prepare('INSERT INTO users(id,email,display_name,created_at,updated_at,deleted_at) VALUES(?,?,?,?,?,\'\')').run(userId, email, '比赛体验用户', iso, iso);
+    await db.prepare('INSERT INTO demo_accounts(user_id,expires_at,created_at) VALUES(?,?,?)').run(userId, now + lifetime, now);
+    return { user: { id: userId, displayName: '比赛体验用户', createdAt: iso, updatedAt: iso }, userId, displayName: '比赛体验用户', accountExpiresAt: now + lifetime, ...await issueSession(userId) };
+  }
+
   async function authenticateToken(accessToken) {
     const value = String(accessToken || '').trim(); if (!value) return null;
     const row = await db.prepare(`SELECT s.*, u.id AS uid, u.email, u.display_name, u.created_at AS user_created_at,
       u.updated_at AS user_updated_at, u.deleted_at AS user_deleted_at
       FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.access_token_hash=? AND s.revoked_at=0`).get(hashSecret(value));
     if (!row || row.user_deleted_at || row.access_expires_at <= clock()) return null;
+    const demo = await db.prepare('SELECT expires_at FROM demo_accounts WHERE user_id=?').get(row.uid);
+    if (demo && Number(demo.expires_at) <= clock()) return null;
     return { id: row.uid, email: row.email, displayName: row.display_name || '', createdAt: row.user_created_at, updatedAt: row.user_updated_at, sessionId: row.id };
   }
 
@@ -104,6 +114,8 @@ export function createAuthStore(db, options = {}) {
       u.updated_at AS user_updated_at, u.deleted_at AS user_deleted_at
       FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.refresh_token_hash=? AND s.revoked_at=0`).get(hashSecret(value));
     if (!row || row.user_deleted_at || row.refresh_expires_at <= clock()) return null;
+    const demo = await db.prepare('SELECT expires_at FROM demo_accounts WHERE user_id=?').get(row.uid);
+    if (demo && Number(demo.expires_at) <= clock()) return null;
     return { id: row.uid, email: row.email, displayName: row.display_name || '', createdAt: row.user_created_at, updatedAt: row.user_updated_at, sessionId: row.id };
   }
 
@@ -128,7 +140,7 @@ export function createAuthStore(db, options = {}) {
 
   async function revokeUser(userId) { await db.prepare('UPDATE sessions SET revoked_at=? WHERE user_id=? AND revoked_at=0').run(clock(), userId); }
 
-  return { requestCode, verifyCode, authenticateToken, refresh, revokeAccess, revokeRefresh, revokeUser, userView };
+  return { requestCode, verifyCode, createDemoSession, authenticateToken, refresh, revokeAccess, revokeRefresh, revokeUser, userView };
 }
 
 export function bearerToken(req) {

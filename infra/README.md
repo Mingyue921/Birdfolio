@@ -2,6 +2,12 @@
 
 This directory contains deployable configuration examples only. It does not provision or purchase Huawei Cloud resources.
 
+## ICT competition deployment
+
+Build `web/` first, copy `competition.env.example` to an untracked `competition.env`, and inject every real value through CodeArts Secret or an equivalent protected environment. `docker-compose.competition.yml` runs the private API and Caddy HTTPS entry; RDS, DCS, OBS and MaaS remain managed Huawei Cloud services and are never published by this Compose file.
+
+Use `DEPLOYMENT_PROFILE=competition` only for the temporary competition demo. A commercial release must switch to `commercial`, disable `COMPETITION_DEMO_LOGIN`, use a filed domain and restore the production email login requirements. The exact human cloud procedure and rollback checklist are in `docs/competition/cloud-deployment-runbook.md`.
+
 ## Local PostgreSQL contract test
 
 ```powershell
@@ -19,6 +25,7 @@ The PostgreSQL test creates an isolated schema and removes it after the run. Wit
 Huawei Cloud HTTPS ingress / load balancer
   -> private Node.js container
      -> RDS for PostgreSQL
+     -> DCS Redis
      -> OBS private bucket
      -> mail provider
      -> HTTPS vision provider

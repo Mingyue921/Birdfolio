@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { findCatalogSpecies } from './species-catalog.mjs';
+import { createVisionProvider } from './platform/vision-provider.mjs';
 
 function clamp(value) { return Math.max(0, Math.min(1, Number(value) || 0)); }
 
@@ -51,24 +52,17 @@ function parseProviderContent(content) {
   const parsed = JSON.parse(cleaned); return Array.isArray(parsed) ? parsed : parsed.candidates;
 }
 
-export async function identifyBird(request, env) {
-  const configured = Boolean(env.VISION_API_URL?.trim() && env.VISION_API_KEY?.trim() && env.VISION_MODEL?.trim());
+export async function identifyBird(request, env, suppliedProvider) {
+  const visionProvider = suppliedProvider || createVisionProvider(env);
+  const configured = visionProvider.configured;
   if (!configured) return { mode: 'unavailable', candidates: [], warning: '视觉模型尚未配置，请在设置中检查后端，或前往图鉴手动选择鸟种。' };
   try {
-    const response = await fetch(env.VISION_API_URL, {
-      method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${env.VISION_API_KEY}` }, signal: AbortSignal.timeout(25000),
-      body: JSON.stringify({ model: env.VISION_MODEL, temperature: 0, messages: [{ role: 'user', content: [
-        { type: 'text', text: '识别照片中的鸟类，不限物种。返回最多三个合理候选；若不是鸟或无法辨认，返回空数组。仅返回 JSON 数组，不要 Markdown。每项必须包含 name（规范中文名）、scientificName（拉丁学名）、category（中文科名）、score（0到1）、reasons（2到4条从照片可见的中文辨识依据）和 description（一句客观中文简介）。不要为了迎合而猜测。' },
-        { type: 'image_url', image_url: { url: request.imageBase64 } }
-      ] }] })
-    });
-    if (!response.ok) throw new Error(`provider ${response.status}`);
-    const payload = await response.json();
-    const candidates = normalizeCandidates(parseProviderContent(payload?.choices?.[0]?.message?.content), request);
-    if (!candidates.length) return { mode: 'provider', candidates: [], warning: '模型未能从照片中确认鸟类，请换一张主体更清晰的照片，或从图鉴手动选择。' };
+    const providerResult = await visionProvider.identify(request);
+    const candidates = normalizeCandidates(parseProviderContent(providerResult.content), request);
+    if (!candidates.length) return { mode: 'provider', provider: providerResult.provider, modelVersion: providerResult.modelVersion, elapsedMs: providerResult.elapsedMs, candidates: [], warning: '模型未能从照片中确认鸟类，请换一张主体更清晰的照片，或从图鉴手动选择。' };
     const confidence = Number(candidates[0].finalScore || 0);
     const lowConfidence = confidence < 0.55 ? '当前最高候选置信度较低，建议人工复核或从离线图鉴选择。' : '';
-    return { mode: 'provider', candidates, warning: `AI 结果仅作为候选，请结合照片、地点和辨识特征确认后再记录。${lowConfidence}` };
+    return { mode: 'provider', provider: providerResult.provider, modelVersion: providerResult.modelVersion, elapsedMs: providerResult.elapsedMs, candidates, warning: `AI 结果仅作为候选，请结合照片、地点和辨识特征确认后再记录。${lowConfidence}` };
   } catch (error) {
     return { mode: 'unavailable', candidates: [], warning: `视觉识别暂不可用（${String(error?.message || 'unknown')}），没有伪造候选。请重试或从图鉴手动选择。` };
   }

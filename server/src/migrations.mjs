@@ -89,6 +89,16 @@ const migrations = [
     up(db) {
       db.exec('CREATE TABLE IF NOT EXISTS rate_limits(bucket_key TEXT PRIMARY KEY, started_at INTEGER NOT NULL, request_count INTEGER NOT NULL)');
     }
+  },
+  {
+    version: 4,
+    name: 'competition_demo_accounts',
+    up(db) {
+      db.exec(`CREATE TABLE IF NOT EXISTS demo_accounts (
+        user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL
+      ); CREATE INDEX IF NOT EXISTS demo_accounts_expiry ON demo_accounts(expires_at);`);
+    }
   }
 ];
 

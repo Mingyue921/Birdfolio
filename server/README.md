@@ -53,6 +53,8 @@ MAIL_PROVIDER_TOKEN=受保护的服务端令牌
 
 正式预检还要求 PostgreSQL、私有 OBS、邮件服务、`DEMO_MODE=false` 与 `HTTPS_PROXY=true`，任一配置缺失都会拒绝 Release 启动。完整拓扑与本地 PostgreSQL Compose 使用方法见 `infra/README.md`。
 
+比赛环境使用 `DEPLOYMENT_PROFILE=competition`、`COMPETITION_DEMO_LOGIN=true`、`CACHE_PROVIDER=redis` 和私网 `REDIS_URL`。此模式开放 `POST /api/auth/demo-session`，为每位体验者创建隔离的 24 小时账号及两条明确标注的种子观察；商业环境若启用该开关会被发布预检拒绝。DCS Redis 用于原子限流与 10 分钟 AI 候选缓存，不缓存图片、Token 或精确位置。
+
 ## API 概览
 
 当前服务提供：
@@ -63,6 +65,7 @@ POST /api/auth/request-code
 POST /api/auth/verify-code
 POST /api/auth/refresh
 POST /api/auth/logout
+POST /api/auth/demo-session (competition profile only)
 GET  /api/me
 POST /api/account/export
 DELETE /api/account
@@ -112,6 +115,7 @@ npm run check:env
 npm run check:release
 npm run db:migrate
 npm run db:backup
+npm run cleanup:demo
 ```
 
 运行时数据位于 `data/`：SQLite 数据库、WAL 文件、上传图片和 GBIF 缓存均被忽略。数据库结构由 `src/migrations.mjs` 中的编号迁移管理；服务启动时自动执行尚未应用的迁移。未被帖子引用的过期上传会在启动时和 `MEDIA_CLEANUP_INTERVAL_MS` 周期内清理，上传有效期由 `MEDIA_TTL_MS` 控制。服务日志为单行 JSON，包含请求 ID、状态码和耗时，便于日志采集系统解析。正式部署至少需要定期备份数据库、配置 HTTPS/CORS、认证和请求限流；本地服务不应直接暴露到公网。

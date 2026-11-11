@@ -14,10 +14,10 @@ test('empty database applies numbered migrations in order and reopening is idemp
   const dir = mkdtempSync(join(tmpdir(), 'birdfolio-empty-migration-'));
   const path = join(dir, 'empty.db');
   const db = openDatabase(path, { seed: false, logger: silentLogger });
-  assert.deepEqual(db.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map(row => row.version), [1, 2, 3]);
+  assert.deepEqual(db.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map(row => row.version), [1, 2, 3, 4]);
   db.close();
   const reopened = openDatabase(path, { seed: false, logger: silentLogger });
-  assert.deepEqual(reopened.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map(row => row.version), [1, 2, 3]);
+  assert.deepEqual(reopened.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map(row => row.version), [1, 2, 3, 4]);
   reopened.close();
   rmSync(dir, { recursive: true, force: true });
 });
@@ -40,7 +40,8 @@ test('numbered migrations upgrade a legacy database and preserve data', () => {
   assert.deepEqual(applied, [
     { version: 1, name: 'initial_schema' },
     { version: 2, name: 'observation_version' },
-    { version: 3, name: 'persistent_rate_limits' }
+    { version: 3, name: 'persistent_rate_limits' },
+    { version: 4, name: 'competition_demo_accounts' }
   ]);
   assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='rate_limits'").get());
   assert.ok(db.prepare('PRAGMA table_info(observations)').all().some(column => column.name === 'version'));
@@ -48,7 +49,7 @@ test('numbered migrations upgrade a legacy database and preserve data', () => {
   db.close();
 
   const reopened = openDatabase(path, { seed: false, logger: silentLogger });
-  assert.equal(reopened.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get().count, 3);
+  assert.equal(reopened.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get().count, 4);
   assert.equal(reopened.prepare('SELECT COUNT(*) AS count FROM observations').get().count, 1);
   reopened.close();
   rmSync(dir, { recursive: true, force: true });

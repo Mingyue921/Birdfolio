@@ -26,6 +26,8 @@ function parseEnvFile(filePath) {
 const values = { ...parseEnvFile(resolve(root, '.env')), ...process.env };
 const errors = [];
 const warnings = [];
+const profile = String(values.DEPLOYMENT_PROFILE || 'commercial').toLowerCase();
+if (!['commercial', 'competition'].includes(profile)) errors.push('DEPLOYMENT_PROFILE 仅支持 commercial 或 competition');
 
 const nodeMajor = Number(process.versions.node.split('.')[0]);
 const nodeMinor = Number(process.versions.node.split('.')[1]);
@@ -82,12 +84,18 @@ if (storageProvider === 'obs') {
   try { if (release && new URL(values.OBS_ENDPOINT).protocol !== 'https:') errors.push('Release OBS_ENDPOINT 必须使用 HTTPS'); } catch { if (values.OBS_ENDPOINT) errors.push('OBS_ENDPOINT 不是有效 URL'); }
 }
 const mailUrl = String(values.MAIL_PROVIDER_URL || '').trim();
-if (release && !mailUrl) errors.push('Release 环境必须配置 MAIL_PROVIDER_URL');
+if (release && profile !== 'competition' && !mailUrl) errors.push('商业 Release 环境必须配置 MAIL_PROVIDER_URL');
 if (mailUrl) { try { if (release && new URL(mailUrl).protocol !== 'https:') errors.push('Release MAIL_PROVIDER_URL 必须使用 HTTPS'); } catch { errors.push('MAIL_PROVIDER_URL 不是有效 URL'); } }
-if (release && !String(values.MAIL_PROVIDER_TOKEN || '').trim()) errors.push('Release 环境必须配置 MAIL_PROVIDER_TOKEN');
+if (release && profile !== 'competition' && !String(values.MAIL_PROVIDER_TOKEN || '').trim()) errors.push('商业 Release 环境必须配置 MAIL_PROVIDER_TOKEN');
 if (release && String(values.AUTH_DEBUG_CODES || '').toLowerCase() === 'true') errors.push('Release 环境禁止 AUTH_DEBUG_CODES=true');
 if (release && String(values.AUTH_DEV_CODE || '').trim()) errors.push('Release 环境禁止 AUTH_DEV_CODE');
 if (release && String(values.DEMO_MODE || '').toLowerCase() !== 'false') errors.push('Release 环境必须设置 DEMO_MODE=false');
+const cacheProvider = String(values.CACHE_PROVIDER || 'memory').toLowerCase();
+if (!['memory', 'redis'].includes(cacheProvider)) errors.push('CACHE_PROVIDER 仅支持 memory 或 redis');
+if (profile === 'competition') {
+  if (String(values.COMPETITION_DEMO_LOGIN || '').toLowerCase() !== 'true') errors.push('比赛环境必须设置 COMPETITION_DEMO_LOGIN=true');
+  if (cacheProvider !== 'redis' || !String(values.REDIS_URL || values.DCS_REDIS_URL || '').trim()) errors.push('比赛环境必须配置 CACHE_PROVIDER=redis 和 REDIS_URL');
+} else if (String(values.COMPETITION_DEMO_LOGIN || '').toLowerCase() === 'true') errors.push('商业环境禁止启用 COMPETITION_DEMO_LOGIN');
 
 const envFile = resolve(root, '.env');
 if (!existsSync(envFile)) warnings.push('未找到 server/.env；启动脚本会从 .env.example 创建开发配置');
@@ -103,5 +111,6 @@ if (errors.length > 0) {
   console.log(`- Vision: ${configuredVision.length === visionKeys.length ? 'provider configured' : 'offline fallback'}`);
   console.log(`- Database: ${databaseProvider}`);
   console.log(`- Media storage: ${storageProvider}`);
+  console.log(`- Cache: ${cacheProvider}`);
   for (const warning of warnings) console.warn(`! ${warning}`);
 }

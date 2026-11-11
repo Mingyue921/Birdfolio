@@ -134,10 +134,10 @@ test('PostgreSQL migrations are idempotent and core API contract matches SQLite'
   const db = createPostgresAdapter(pool); let server;
   try {
     await migratePostgres(db); await migratePostgres(db);
-    assert.deepEqual((await db.prepare('SELECT version FROM schema_migrations ORDER BY version').all()).map(row => Number(row.version)), [1]);
+    assert.deepEqual((await db.prepare('SELECT version FROM schema_migrations ORDER BY version').all()).map(row => Number(row.version)), [1, 2]);
     await assert.rejects(migratePostgres(db, { migrationList: [{ version: 2, name: 'rollback_probe', sql: 'CREATE TABLE rollback_probe(id INTEGER); SELECT * FROM table_that_does_not_exist;' }] }));
     assert.equal(await db.prepare("SELECT to_regclass('rollback_probe') AS name").get().then(row => row.name), null);
-    assert.deepEqual((await db.prepare('SELECT version FROM schema_migrations ORDER BY version').all()).map(row => Number(row.version)), [1]);
+    assert.deepEqual((await db.prepare('SELECT version FROM schema_migrations ORDER BY version').all()).map(row => Number(row.version)), [1, 2]);
     const dir = mkdtempSync(join(tmpdir(), 'birdfolio-pg-'));
     server = createBirdfolioServer({ dataDir: dir, db, mediaStorage: createLocalMediaStorage(dir), env: { DATABASE_PROVIDER: 'postgres', REQUIRE_AUTH: 'true', AUTH_DEBUG_CODES: 'true', DEMO_MODE: 'false' } });
     await new Promise(resolve => server.listen(0, '127.0.0.1', resolve)); const origin = `http://127.0.0.1:${server.address().port}`;

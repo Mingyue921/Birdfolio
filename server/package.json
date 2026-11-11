@@ -15,11 +15,13 @@
     "db:backup": "node src/jobs/backup-database.mjs",
     "db:restore": "node src/jobs/restore-database.mjs",
     "cleanup:media": "node src/jobs/cleanup-media.mjs",
+    "cleanup:demo": "node src/jobs/cleanup-demo.mjs",
     "test": "node --test test/*.test.mjs",
     "test:ci": "node --test --test-reporter=spec test/*.test.mjs"
   },
   "dependencies": {
     "esdk-obs-nodejs": "^3.26.10",
-    "pg": "^8.16.3"
+    "pg": "^8.16.3",
+    "redis": "^5.9.0"
   }
 }

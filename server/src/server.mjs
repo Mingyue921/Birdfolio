@@ -10,6 +10,7 @@ import { searchGbifBirds } from './gbif.mjs';
 import { body, errorCategory, errorStatus, handleCorsPreflight, json, rawBody, requestId, required, routeTemplate } from './http.mjs';
 import { createLogger } from './logger.mjs';
 import { scheduleMediaCleanup } from './media-cleanup.mjs';
+import { scheduleDemoCleanup } from './demo-cleanup.mjs';
 import { createActor } from './middleware/auth.mjs';
 import { handleAccountRoutes } from './routes/account-routes.mjs';
 import { handleAuthRoutes } from './routes/auth-routes.mjs';
@@ -20,6 +21,8 @@ import { createObservationService, handleObservationRoutes, timestampMillisecond
 import { handleSyncRoutes } from './routes/sync-routes.mjs';
 import { createMailProvider } from './platform/mail-provider.mjs';
 import { createPersistentRateLimiter } from './platform/rate-limiter.mjs';
+import { createCacheProvider, createCacheRateLimiter, createMemoryCache } from './platform/cache-provider.mjs';
+import { createVisionProvider } from './platform/vision-provider.mjs';
 import { openPostgresDatabase } from './platform/postgres.mjs';
 import { migratePostgres } from './platform/postgres-migrations.mjs';
 import { createLocalMediaStorage, createMediaStorage } from './platform/media-storage.mjs';
@@ -29,6 +32,7 @@ setDefaultResultOrder('ipv4first');
 function assertProductionConfig(env, host) {
   if (String(env.NODE_ENV || '').toLowerCase() !== 'production') return;
   const problems = [];
+  const profile = String(env.DEPLOYMENT_PROFILE || 'commercial').toLowerCase();
   if (String(env.REQUIRE_AUTH || '').toLowerCase() !== 'true') problems.push('REQUIRE_AUTH=true');
   const cors = String(env.CORS_ORIGIN || '').trim();
   if (!cors || cors === '*') problems.push('CORS_ORIGIN allow-list');
@@ -41,11 +45,15 @@ function assertProductionConfig(env, host) {
   if (!visionUrl || !String(env.VISION_API_KEY || '').trim() || !String(env.VISION_MODEL || '').trim()) problems.push('VISION_API_URL/VISION_API_KEY/VISION_MODEL');
   else { try { if (new URL(visionUrl).protocol !== 'https:') problems.push('VISION_API_URL=https'); } catch { problems.push('VISION_API_URL'); } }
   const mailUrl = String(env.MAIL_PROVIDER_URL || '').trim();
-  if (!mailUrl) problems.push('MAIL_PROVIDER_URL');
-  else { try { if (new URL(mailUrl).protocol !== 'https:') problems.push('MAIL_PROVIDER_URL=https'); } catch { problems.push('MAIL_PROVIDER_URL'); } }
-  if (!String(env.MAIL_PROVIDER_TOKEN || '').trim()) problems.push('MAIL_PROVIDER_TOKEN');
+  if (profile !== 'competition' && !mailUrl) problems.push('MAIL_PROVIDER_URL');
+  else if (mailUrl) { try { if (new URL(mailUrl).protocol !== 'https:') problems.push('MAIL_PROVIDER_URL=https'); } catch { problems.push('MAIL_PROVIDER_URL'); } }
+  if (profile !== 'competition' && !String(env.MAIL_PROVIDER_TOKEN || '').trim()) problems.push('MAIL_PROVIDER_TOKEN');
   if (String(env.AUTH_DEBUG_CODES || '').toLowerCase() === 'true' || String(env.AUTH_DEV_CODE || '').trim()) problems.push('debug auth codes disabled');
   if (String(env.DEMO_MODE || '').toLowerCase() !== 'false') problems.push('DEMO_MODE=false');
+  if (profile === 'competition') {
+    if (String(env.COMPETITION_DEMO_LOGIN || '').toLowerCase() !== 'true') problems.push('COMPETITION_DEMO_LOGIN=true');
+    if (String(env.CACHE_PROVIDER || '').toLowerCase() !== 'redis' || !String(env.REDIS_URL || env.DCS_REDIS_URL || '').trim()) problems.push('CACHE_PROVIDER=redis and REDIS_URL');
+  } else if (String(env.COMPETITION_DEMO_LOGIN || '').toLowerCase() === 'true') problems.push('competition demo login disabled');
   if (problems.length > 0) throw new Error('PRODUCTION_CONFIG_INVALID: ' + problems.join(', '));
 }
 
@@ -59,14 +67,19 @@ export function createBirdfolioServer(options = {}) {
   if (!options.db && databaseProvider === 'postgres') throw new Error('USE_ASYNC_SERVER_FACTORY');
   const db = options.db || openDatabaseImpl(options.databasePath || databasePath(env, dataDir), { seed: seedDemo, logger });
   let stopCleanup = () => {};
+  let stopDemoCleanup = () => {};
   let closePromise = null;
   let managedMediaStorage = options.mediaStorage;
+  let managedCache = options.cache || createMemoryCache();
+  const visionProvider = options.visionProvider || createVisionProvider(env);
 
   function closeResources() {
     if (closePromise) return closePromise;
     const pending = [];
     try { stopCleanup(); } catch { /* continue closing dependencies */ }
+    try { stopDemoCleanup(); } catch { /* continue closing dependencies */ }
     try { const result = managedMediaStorage?.close?.(); if (result?.then) pending.push(result); } catch { /* continue closing database */ }
+    try { const result = managedCache?.close?.(); if (result?.then) pending.push(result); } catch { /* continue closing database */ }
     try { const result = db.close(); if (result?.then) pending.push(result); } catch { /* lifecycle cleanup is best effort and idempotent */ }
     closePromise = Promise.allSettled(pending).then(() => undefined);
     return closePromise;
@@ -78,7 +91,7 @@ export function createBirdfolioServer(options = {}) {
     const speciesCatalog = options.speciesCatalog || (input => searchGbifBirds({ ...input, cachePath: join(dataDir, 'gbif-cache.json') }));
     const observations = (options.createObservationServiceImpl || createObservationService)(db, required, env);
     const actor = createActor({ auth, env, requireAuthByDefault });
-    const enforceRate = options.enforceRate || createPersistentRateLimiter(db);
+    const enforceRate = options.enforceRate || createCacheRateLimiter(managedCache);
     const mailProvider = options.mailProvider || createMailProvider(env);
     const mediaStorage = managedMediaStorage || createLocalMediaStorage(dataDir); managedMediaStorage = mediaStorage;
 
@@ -94,9 +107,10 @@ export function createBirdfolioServer(options = {}) {
       const context = { req, res, url, env, rid, db, auth, actor, body, rawBody, json, required, enforceRate, mailProvider, mediaStorage, dataDir, requireAuthByDefault, observationRows: observations.rows, writeObservation: observations.write };
       try {
         if (req.method === 'GET' && url.pathname === '/health/live') { json(res, 200, { ok: true, service: 'birdfolio' }, env, rid); return; }
-        if (req.method === 'GET' && url.pathname === '/health/ready') { try { await db.health?.(); await mediaStorage.health?.(); json(res, 200, { ok: true, database: databaseProvider, storage: mediaStorage.kind }, env, rid); } catch { json(res, 503, { ok: false, error: 'DEPENDENCY_UNAVAILABLE' }, env, rid); } return; }
+        if (req.method === 'GET' && url.pathname === '/health/ready') { try { await db.health?.(); await managedCache.health?.(); await mediaStorage.health?.(); json(res, 200, { ok: true, database: databaseProvider, cache: managedCache.kind, storage: mediaStorage.kind }, env, rid); } catch { json(res, 503, { ok: false, error: 'DEPENDENCY_UNAVAILABLE' }, env, rid); } return; }
         if (req.method === 'GET' && url.pathname === '/api/health') { json(res, 200, { ok: true, service: 'birdfolio', aiMode: env.VISION_API_URL?.trim() && env.VISION_API_KEY?.trim() && env.VISION_MODEL?.trim() ? 'provider' : 'unavailable', auth: 'email_code', version: 'beta-1' }, env, rid); return; }
         if (req.method === 'GET' && url.pathname === '/api/species') { const query = url.searchParams.get('q') || ''; const limit = Math.min(50, Math.max(1, Number(url.searchParams.get('limit') || 20))); json(res, 200, await speciesCatalog({ query, limit }), env, rid); return; }
+        context.cache = managedCache; context.visionProvider = visionProvider;
         for (const handler of handlers) { if (await handler(context)) return; }
         json(res, 404, { error: 'NOT_FOUND' }, env, rid);
       } catch (error) {
@@ -106,6 +120,7 @@ export function createBirdfolioServer(options = {}) {
     });
 
     stopCleanup = (options.scheduleMediaCleanupImpl || scheduleMediaCleanup)(db, { intervalMs: Number(env.MEDIA_CLEANUP_INTERVAL_MS || 15 * 60 * 1000), logger, storage: mediaStorage });
+    if (String(env.DEPLOYMENT_PROFILE || '').toLowerCase() === 'competition') stopDemoCleanup = (options.scheduleDemoCleanupImpl || scheduleDemoCleanup)(db, { intervalMs: Number(env.DEMO_CLEANUP_INTERVAL_MS || 30 * 60 * 1000), logger, storage: mediaStorage });
     const nativeClose = server.close.bind(server); let closeStarted = false;
     server.close = callback => {
       if (closeStarted || closePromise) { Promise.resolve(closeResources()).then(() => callback?.()); return server; }
@@ -132,11 +147,13 @@ export async function createProductionServer(options = {}) {
   const provider = String(env.DATABASE_PROVIDER || 'sqlite').toLowerCase();
   if (provider !== 'postgres') return createBirdfolioServer({ ...options, env, logger });
   const db = await (options.openPostgresDatabaseImpl || openPostgresDatabase)(env);
+  let cache;
   try {
     await (options.migratePostgresImpl || migratePostgres)(db, { logger });
+    cache = options.cache || await createCacheProvider(env, { logger });
     const mediaStorage = options.mediaStorage || await createMediaStorage(env, dataDir, options.mediaStorageOptions);
-    return createBirdfolioServer({ ...options, env, logger, dataDir, db, mediaStorage });
-  } catch (error) { await db.close().catch(() => {}); throw error; }
+    return createBirdfolioServer({ ...options, env, logger, dataDir, db, cache, mediaStorage });
+  } catch (error) { await cache?.close?.().catch?.(() => {}); await db.close().catch(() => {}); throw error; }
 }
 
 export { timestampMilliseconds };
