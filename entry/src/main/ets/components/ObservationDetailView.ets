@@ -1,4 +1,5 @@
 import { Observation } from '../models/BirdModels';
+import { AppColors, AppFontSize, AppRadius, AppSpacing, APP_SERIF } from '../theme/AppTheme';
 
 const BG = '#F9FAF7';
 const WHITE = '#FFFFFF';
@@ -26,6 +27,19 @@ export struct ObservationDetailView {
     }.padding(14).width('100%').backgroundColor(WHITE).border({ width: 1, color: BORDER }).borderRadius(8)
   }
 
+  private syncLabel(): string {
+    if (this.record.localMeta === undefined) return '仅保存在本机';
+    if (this.record.localMeta.syncStatus === 'synced') return '已同步';
+    if (this.record.localMeta.syncStatus === 'pending') return '等待同步';
+    if (this.record.localMeta.syncStatus === 'conflict') return '同步冲突';
+    return '仅保存在本机';
+  }
+
+  private locationLabel(): string {
+    if (this.record.latitude === 0 && this.record.longitude === 0) return '未保存坐标';
+    return this.record.fuzzyLocation ? '模糊位置 · 对外隐藏精确坐标' : '精确位置 · 仅自己可见';
+  }
+
   @Builder Privacy() {
     Row({ space: 10 }) {
       Text('⌖').fontSize(18).fontColor(GREEN)
@@ -49,7 +63,7 @@ export struct ObservationDetailView {
           Row({ space: 12 }) {
             Image(this.image).width(100).height(100).objectFit(ImageFit.Cover).borderRadius(8)
             Column({ space: 5 }) {
-              Text(this.birdName).fontFamily('serif').fontSize(25).fontColor(INK)
+              Text(this.birdName).fontFamily(APP_SERIF).fontSize(25).fontColor(INK).maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
               Text(this.scientificName).fontFamily('serif').fontSize(13).fontStyle(FontStyle.Italic).fontColor(MUTED)
               Text(this.record.count.toString() + ' 只 · ' + this.record.observedAt).fontSize(12).fontColor(GREEN)
             }.alignItems(HorizontalAlign.Start).layoutWeight(1)
@@ -59,16 +73,20 @@ export struct ObservationDetailView {
             Button('删除记录').layoutWeight(1).height(44).fontColor('#D7644A').backgroundColor(WHITE).border({ width: 1, color: '#D7644A' }).borderRadius(8).onClick(() => this.onDelete())
           }
           Button('制作手账').width('100%').height(42).fontColor(GREEN).backgroundColor(GREEN_SOFT).borderRadius(8).onClick(() => this.onCreateJournal())
+          Row() {
+            Text('记录状态').fontSize(AppFontSize.caption).fontColor(AppColors.textSecondary).layoutWeight(1)
+            Text(this.syncLabel()).fontSize(AppFontSize.caption).fontColor(this.record.localMeta?.syncStatus === 'conflict' ? AppColors.error : AppColors.primary)
+          }.padding(AppSpacing.sm).width('100%').backgroundColor(AppColors.primarySoft).borderRadius(AppRadius.card)
           this.DetailField('观察地点', this.record.placeName)
           this.DetailField('观察日期', this.record.observedAt)
-          this.DetailField('位置保护', this.record.fuzzyLocation ? '已开启模糊保护' : '精确位置仅自己可见')
+          this.DetailField('位置保护', this.locationLabel())
           Text('观察行为').fontFamily('serif').fontSize(18).fontColor(INK).width('100%')
           Row({ space: 8 }) {
             ForEach(this.record.behaviors && this.record.behaviors.length > 0 ? this.record.behaviors : ['觅食'], (item: string) => {
               Text(item).fontSize(12).fontColor(GREEN).padding({ left: 10, right: 10, top: 8, bottom: 8 }).backgroundColor(GREEN_SOFT).borderRadius(18)
             }, (item: string) => item)
           }
-          Text('观察笔记').fontFamily('serif').fontSize(18).fontColor(INK).width('100%')
+          Text('观察笔记').fontFamily(APP_SERIF).fontSize(18).fontColor(INK).width('100%')
           Text(this.record.note || '暂无笔记').fontSize(15).fontColor(INK).lineHeight(24).padding(14).width('100%').backgroundColor(WHITE).border({ width: 1, color: BORDER }).borderRadius(8)
           if (this.record.photos.length > 0) {
             Text('现场照片').fontFamily('serif').fontSize(18).fontColor(INK).width('100%')
@@ -76,6 +94,8 @@ export struct ObservationDetailView {
               Image(uri).width('100%').height(210).objectFit(ImageFit.Cover).borderRadius(8)
             }, (uri: string) => uri)
           }
+          Text('辨识信息').fontFamily(APP_SERIF).fontSize(AppFontSize.sectionTitle).fontColor(AppColors.text).width('100%')
+          Text('此记录未保存可复核的 AI 分数与辨识依据。鸟种名称以用户最终确认结果为准。').fontSize(AppFontSize.caption).fontColor(AppColors.textSecondary).lineHeight(19).padding(AppSpacing.sm).width('100%').backgroundColor(AppColors.surface).border({ width: 1, color: AppColors.border }).borderRadius(AppRadius.card)
           this.Privacy()
         }.padding({ left: 16, right: 16, bottom: 28 })
       }.layoutWeight(1)

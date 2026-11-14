@@ -1,4 +1,5 @@
 import { JournalBook, Observation } from '../../models/BirdModels';
+import { AppStateView } from '../common/AppStateView';
 
 const WHITE = '#FFFFFF';
 const INK = '#1C241F';
@@ -15,6 +16,7 @@ export struct JournalBooksView {
   @Prop books: JournalBook[];
   @Prop recentRecords: Observation[];
   @Prop recentBirdNames: string[];
+  @Prop recentBirdImages: Resource[];
   @BuilderParam onOpenShop: () => void;
   @BuilderParam onCreateBook: () => void;
   @BuilderParam onOpenBook: (id: string) => void;
@@ -55,11 +57,11 @@ export struct JournalBooksView {
         }
         Button('＋ 新建手账').width('100%').height(46).backgroundColor(GREEN).borderRadius(8).onClick(() => this.onCreateBook())
         if (this.books.length === 0) {
-          Text('还没有手账草稿，先从一次观察开始吧。').fontSize(14).fontColor(MUTED).padding(18).width('100%').backgroundColor(WHITE).borderRadius(8)
+          AppStateView({ type: 'empty', title: '还没有手账', message: '可新建空白手账，或从一条真实观察开始。', actionLabel: '新建手账', onAction: () => this.onCreateBook() })
         }
         ForEach(this.books, (book: JournalBook) => {
           Row({ space: 14 }) {
-            Image(book.coverImageUri && book.coverImageUri.length > 0 ? book.coverImageUri : $r('app.media.journal_draft')).width(106).height(138).objectFit(ImageFit.Cover).borderRadius(6)
+            Image(book.coverImageUri && book.coverImageUri.length > 0 ? book.coverImageUri : $r('app.media.journal_draft')).width(102).height(136).objectFit(ImageFit.Cover).borderRadius(6)
             Column({ space: 7 }) {
               Text(book.title).fontFamily(SERIF).fontSize(18).fontWeight(FontWeight.Medium).fontColor(INK)
               Text(book.pages.length.toString() + '页 · ' + book.observationIds.length.toString() + '条观察').fontSize(12).fontColor(MUTED)
@@ -77,7 +79,7 @@ export struct JournalBooksView {
           Row({ space: 10 }) {
             ForEach(this.recentRecords, (item: Observation, index: number) => {
               Column({ space: 5 }) {
-                Image($r('app.media.bird_hero')).width(116).height(88).objectFit(ImageFit.Cover).borderRadius(6)
+                Image(this.recentBirdImages[index] || $r('app.media.background')).width(116).height(88).objectFit(ImageFit.Cover).borderRadius(6)
                 Text(this.recentBirdNames[index] || '未知鸟种').fontSize(14).fontWeight(FontWeight.Medium).fontColor(INK)
                 Text(item.observedAt).fontSize(11).fontColor(MUTED)
               }.alignItems(HorizontalAlign.Start).onClick(() => this.onCreateFromObservation(item.id))
@@ -85,7 +87,7 @@ export struct JournalBooksView {
           }
         }.scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off)
 
-        this.SectionLink('我的作品', '全部 · 草稿 · 已发布', () => this.onOpenWorks())
+        this.SectionLink('灵感模板', '示例内容，不是用户作品', () => this.onOpenWorks())
         Grid() {
           this.SampleCover('北京水鸟观察手册', $r('app.media.journal_waterbirds'))
           this.SampleCover('秋日林鸟晨鸣志', $r('app.media.journal_song'))

@@ -11,6 +11,7 @@ import { AuthSessionPolicy } from '../main/ets/services/AuthSessionPolicy';
 import { PrivacyPolicy, PRIVACY_POLICY_VERSION } from '../main/ets/services/PrivacyPolicy';
 import { ReleaseLogPolicy } from '../main/ets/services/ReleaseLogPolicy';
 import { LegacyPreferencesReader } from '../main/ets/services/LegacyPreferencesReader';
+import { IdentificationPolicy } from '../main/ets/services/IdentificationPolicy';
 
 export default function localUnitTest() {
   describe('localUnitTest', () => {
@@ -32,6 +33,16 @@ export default function localUnitTest() {
     afterAll(() => {
       // Presets a clear action, which is performed after all test cases of the test suite end.
       // This API supports only one parameter: clear action function.
+    });
+    it('requiresManualSelectionForLowConfidenceCandidates', 0, () => {
+      expect(IdentificationPolicy.shouldAutoSelect(0.54)).assertFalse();
+      expect(IdentificationPolicy.shouldAutoSelect(0.55)).assertTrue();
+      expect(IdentificationPolicy.shouldAutoSelect(0.91)).assertTrue();
+    });
+    it('describesIdentificationFailuresByActualCause', 0, () => {
+      expect(IdentificationPolicy.failureTitle('quota_exceeded', '')).assertEqual('今日识别次数已用完');
+      expect(IdentificationPolicy.failureTitle('transport_error', 'TIMEOUT')).assertEqual('AI 请求超时');
+      expect(IdentificationPolicy.failureTitle('transport_error', 'MEDIA_UPLOAD_FAILED')).assertEqual('图片上传失败');
     });
     it('assertContain', 0, () => {
       // Defines a test case. This API supports three parameters: test case name, filter parameter, and test case function.

@@ -58,6 +58,7 @@ import { AuthStorage } from '../services/AuthStorage';
 import { AuthController } from '../services/AuthController';
 import { LocalDataCleanupService } from '../services/LocalDataCleanupService';
 import { SafeLogger } from '../services/SafeLogger';
+import { IdentificationPolicy } from '../services/IdentificationPolicy';
 
 const BG = '#F9FAF7';
 const WHITE = '#FFFFFF';
@@ -111,6 +112,8 @@ struct Index {
   @State fuzzy: boolean = true;
   @State photos: string[] = [];
   @State records: Observation[] = INITIAL_OBSERVATIONS;
+  @State localDataLoading: boolean = true;
+  @State localDataError: string = '';
   @State liked: boolean = false;
   @State toast: string = '';
   @State communityMode: string = '发现';
@@ -167,7 +170,9 @@ struct Index {
   @State identificationCandidates: IdentificationCandidate[] = [];
   @State identificationMode: string = 'unavailable';
   @State identificationWarning: string = '';
+  @State identificationFailureTitle: string = '';
   @State identificationLoading: boolean = false;
+  @State identificationConfirming: boolean = false;
   @State guideSpecies: BirdSpecies[] = SPECIES;
   @State customSpecies: BirdSpecies[] = [];
   @State guideLoading: boolean = false;
@@ -264,24 +269,31 @@ struct Index {
     );
   }
   private async load(): Promise<void> {
-    this.records = await ObservationStorage.load(this.context, INITIAL_OBSERVATIONS);
-    const profile: UserProfile = await ProfileStorage.load(this.context);
-    this.displayName = profile.displayName;
-    this.bio = profile.bio;
-    this.avatarUri = profile.avatarUri;
-    const privacySettings: PrivacySettings = await PrivacyStorage.load(this.context);
-    this.aiUploadConsent = PrivacyStorage.hasActiveConsent(privacySettings, 'identification');
-    this.cutoutUploadConsent = PrivacyStorage.hasActiveConsent(privacySettings, 'cutout');
-    this.customSpecies = await SpeciesStorage.load(this.context);
-    this.guideSpecies = SPECIES.concat(this.customSpecies);
-    this.journalBooks = await JournalStorage.load(this.context);
-    this.backendUrl = await BackendConfigStorage.load(this.context);
-    await this.loadAuthSession();
-    this.communityPosts = await CommunityStorage.loadPosts(this.context);
-    this.communityDrafts = await CommunityStorage.loadDrafts(this.context);
-    this.syncJobs = await SyncQueueStorage.load(this.context);
-    this.authCursor = await SyncCursorStorage.load(this.context);
-    this.selectedYear = ObservationService.years(this.records)[0];
+    this.localDataLoading = true;
+    this.localDataError = '';
+    try {
+      this.records = await ObservationStorage.load(this.context, INITIAL_OBSERVATIONS);
+      const profile: UserProfile = await ProfileStorage.load(this.context);
+      this.displayName = profile.displayName;
+      this.bio = profile.bio;
+      this.avatarUri = profile.avatarUri;
+      const privacySettings: PrivacySettings = await PrivacyStorage.load(this.context);
+      this.aiUploadConsent = PrivacyStorage.hasActiveConsent(privacySettings, 'identification');
+      this.cutoutUploadConsent = PrivacyStorage.hasActiveConsent(privacySettings, 'cutout');
+      this.customSpecies = await SpeciesStorage.load(this.context);
+      this.guideSpecies = SPECIES.concat(this.customSpecies);
+      this.journalBooks = await JournalStorage.load(this.context);
+      this.backendUrl = await BackendConfigStorage.load(this.context);
+      await this.loadAuthSession();
+      this.communityPosts = await CommunityStorage.loadPosts(this.context);
+      this.communityDrafts = await CommunityStorage.loadDrafts(this.context);
+      this.syncJobs = await SyncQueueStorage.load(this.context);
+      this.authCursor = await SyncCursorStorage.load(this.context);
+      this.selectedYear = ObservationService.years(this.records)[0];
+    } catch (_error) {
+      this.localDataError = '本地记录暂时无法读取，请重试。';
+    }
+    this.localDataLoading = false;
     await this.checkBackend();
     await this.processSyncQueue();
   }
@@ -999,10 +1011,13 @@ struct Index {
   }
   private resetIdentification(): void {
     this.photos = [];
+    this.speciesId = '';
     this.identificationCandidates = [];
     this.identificationMode = 'unavailable';
     this.identificationWarning = '';
+    this.identificationFailureTitle = '';
     this.identificationLoading = false;
+    this.identificationConfirming = false;
   }
   private pickPhoto(): void {
     if (!this.aiUploadConsent) {
@@ -1179,8 +1194,10 @@ struct Index {
   }
 
   private async confirmIdentifiedSpecies(): Promise<void> {
+    if (this.identificationConfirming) return;
     const candidate = this.selectedIdentificationCandidate();
     if (!candidate) return;
+    this.identificationConfirming = true;
     if (this.aiRequestId.length > 0 && this.authMode === 'authenticated') {
       try {
         await this.api().confirmIdentification(this.aiRequestId, candidate.speciesId);
@@ -1194,11 +1211,12 @@ struct Index {
     if (!candidate.inCatalog && this.customSpecies.findIndex((item: BirdSpecies) => item.id === candidate.speciesId) < 0) {
       const species = this.candidateSpecies(candidate);
       const next = [species].concat(this.customSpecies);
-      if (!await SpeciesStorage.save(this.context, next)) { this.toast = '鸟种资料保存失败，请重试'; return; }
+      if (!await SpeciesStorage.save(this.context, next)) { this.toast = '鸟种资料保存失败，请重试'; this.identificationConfirming = false; return; }
       this.customSpecies = next;
     }
     const selected = this.candidateSpecies(candidate);
     if (this.guideSpecies.findIndex((item: BirdSpecies) => item.id === selected.id) < 0) this.guideSpecies = [selected].concat(this.guideSpecies);
+    this.identificationConfirming = false;
     this.beginNewRecord(candidate.speciesId, true);
   }
 
@@ -1206,12 +1224,14 @@ struct Index {
     if (this.photos.length === 0) return;
     if (!this.aiUploadConsent) {
       this.identificationMode = 'unavailable';
+      this.identificationFailureTitle = '尚未允许照片分析';
       this.identificationWarning = '尚未同意上传照片。你可以从离线图鉴手动选择鸟种。';
       return;
     }
     if (this.authMode !== 'authenticated') {
       this.identificationMode = 'unavailable';
       this.aiRequestStatus = 'unavailable';
+      this.identificationFailureTitle = 'AI 识鸟需要登录';
       this.identificationWarning = 'AI 识鸟需要先登录后上传照片。照片不会在登录前发送；你可以从离线图鉴手动选择鸟种。';
       return;
     }
@@ -1233,8 +1253,9 @@ struct Index {
       this.identificationMode = result.mode === 'provider' ? 'provider' : 'unavailable';
       this.identificationCandidates = result.candidates;
       this.identificationWarning = result.warning;
+      this.identificationFailureTitle = result.candidates.length === 0 ? '未识别到鸟类' : '';
       if (result.candidates.length > 0) {
-        this.speciesId = result.candidates[0].speciesId;
+        this.speciesId = IdentificationPolicy.shouldAutoSelect(result.candidates[0].finalScore) ? result.candidates[0].speciesId : '';
         result.candidates.forEach((candidate: IdentificationCandidate) => {
           if (this.guideSpecies.findIndex((item: BirdSpecies) => item.id === candidate.speciesId) < 0) this.guideSpecies = [this.candidateSpecies(candidate)].concat(this.guideSpecies);
         });
@@ -1246,10 +1267,12 @@ struct Index {
       }
     } catch (error) {
       const failure = error as ApiServiceError;
-      this.aiRequestStatus = ApiService.identificationStatusForError(failure.errorCode || 'NETWORK_ERROR');
+      const errorCode = failure.errorCode || (error as Error).message || 'NETWORK_ERROR';
+      this.aiRequestStatus = ApiService.identificationStatusForError(errorCode);
+      this.identificationFailureTitle = IdentificationPolicy.failureTitle(this.aiRequestStatus, errorCode);
       this.identificationMode = 'unavailable';
       this.identificationCandidates = [];
-      const statusText = this.aiRequestStatus === 'quota_exceeded' ? '今日识别次数已用完' : (this.aiRequestStatus === 'provider_error' ? '视觉服务返回错误' : '网络或服务暂不可用');
+      const statusText = errorCode === 'IMAGE_READ_FAILED' || errorCode === 'MEDIA_UPLOAD_FAILED' ? '图片读取或上传失败' : (this.aiRequestStatus === 'quota_exceeded' ? '今日识别次数已用完' : (this.aiRequestStatus === 'provider_error' ? '视觉服务返回错误' : (errorCode === 'TIMEOUT' ? 'AI 请求超时' : '网络或服务暂不可用')));
       this.identificationWarning = statusText + '：' + this.networkError(error) + '。没有伪造候选，请重试或从图鉴手动选择。';
     }
     this.identificationLoading = false;
@@ -1366,18 +1389,23 @@ struct Index {
             recentRecords: this.records.slice(0, 2),
             recentBirdNames: this.records.slice(0, 2).map((item: Observation) => this.birdName(item.speciesId)),
             recentBirdImages: this.records.slice(0, 2).map((item: Observation) => this.speciesImage(item.speciesId)),
+            loading: this.localDataLoading,
+            loadError: this.localDataError,
+            offline: this.backendStatus === 'offline' || this.backendStatus === 'error',
             onOpenProfile: () => this.tab = 'mine',
             onOpenMigration: () => this.page = AppRoute.migration(),
             onIdentify: () => this.pickPhoto(),
             onOpenAudio: () => this.page = AppRoute.audio(),
             onNewObservation: () => this.beginNewRecord(),
             onOpenObservations: () => this.page = AppRoute.observations(),
-            onSelectObservation: (id: string) => this.page = AppRoute.observationDetail(id)
+            onSelectObservation: (id: string) => this.page = AppRoute.observationDetail(id),
+            onRetry: () => this.load()
           })
           else if (this.tab === 'journal') JournalBooksView({
             books: this.journalBooks,
             recentRecords: this.records.slice(0, 3),
             recentBirdNames: this.records.slice(0, 3).map((item: Observation) => this.birdName(item.speciesId)),
+            recentBirdImages: this.records.slice(0, 3).map((item: Observation) => this.speciesImage(item.speciesId)),
             onOpenShop: () => this.page = AppRoute.shop(),
             onCreateBook: () => this.createJournal(),
             onOpenBook: (id: string) => this.openJournal(id),
@@ -1456,12 +1484,12 @@ struct Index {
             photoUri: this.photos.length > 0 ? this.photos[0] : '',
             badge: this.identificationBadge(),
             loading: this.identificationLoading,
+            confirming: this.identificationConfirming,
             candidates: this.identificationCandidates,
             candidateImages: this.identificationCandidates.map((item: IdentificationCandidate) => this.speciesImage(item.speciesId)),
-            selectedName: this.birdName(this.speciesId),
-            selectedScientificName: this.birdScientificName(this.speciesId),
-            selectedScore: this.identificationCandidates.length > 0 ? this.candidatePercent(this.identificationCandidates.find((item: IdentificationCandidate) => item.speciesId === this.speciesId) || this.identificationCandidates[0]) : '0%',
             warning: this.identificationWarning,
+            failureType: this.aiRequestStatus,
+            failureTitle: this.identificationFailureTitle,
             onBack: () => this.page = AppRoute.home(),
             onConfirm: () => this.confirmIdentifiedSpecies(),
             onManualSelect: () => this.page = AppRoute.speciesPicker(AppRoute.observationEditor('', this.speciesId)),

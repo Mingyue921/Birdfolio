@@ -1,14 +1,8 @@
 import { Observation } from '../../models/BirdModels';
+import { AppColors, AppFontSize, AppRadius, AppSize, AppSpacing, APP_SERIF } from '../../theme/AppTheme';
 import { ObservationCard } from '../ObservationCard';
-
-const WHITE = '#FFFFFF';
-const INK = '#1C241F';
-const MUTED = '#5E6861';
-const BORDER = '#DDE3DC';
-const GREEN = '#2F6B4F';
-const BLUE = '#4F8396';
-const BLUE_SOFT = '#E5F0F3';
-const SERIF = 'serif';
+import { AppButton } from '../common/AppButton';
+import { AppStateView } from '../common/AppStateView';
 
 @Component
 export struct HomeView {
@@ -16,6 +10,9 @@ export struct HomeView {
   @Prop recentRecords: Observation[];
   @Prop recentBirdNames: string[];
   @Prop recentBirdImages: Resource[];
+  @Prop loading: boolean = false;
+  @Prop loadError: string = '';
+  @Prop offline: boolean = false;
   @BuilderParam onOpenProfile: () => void;
   @BuilderParam onOpenMigration: () => void;
   @BuilderParam onIdentify: () => void;
@@ -23,78 +20,64 @@ export struct HomeView {
   @BuilderParam onNewObservation: () => void;
   @BuilderParam onOpenObservations: () => void;
   @BuilderParam onSelectObservation: (id: string) => void;
-
-  @Builder Action(icon: Resource, title: string, action: () => void) {
-    Row({ space: 9 }) {
-      Image(icon).width(21).height(21).objectFit(ImageFit.Contain)
-      Text(title).fontSize(14).fontWeight(FontWeight.Medium).fontColor(INK).maxLines(1)
-    }
-    .justifyContent(FlexAlign.Center)
-    .layoutWeight(1)
-    .height(48)
-    .backgroundColor(WHITE)
-    .border({ width: 1, color: BORDER })
-    .borderRadius(8)
-    .onClick(() => action())
-  }
+  @BuilderParam onRetry: () => void;
 
   @Builder SectionLink(title: string, detail: string, action: () => void) {
     Row() {
-      Text(title).fontFamily(SERIF).fontSize(18).fontWeight(FontWeight.Medium).fontColor(INK).layoutWeight(1)
-      Text(detail).fontSize(13).fontColor(GREEN)
+      Text(title).fontFamily(APP_SERIF).fontSize(AppFontSize.sectionTitle).fontWeight(FontWeight.Medium).fontColor(AppColors.text).layoutWeight(1)
+      Text(detail).fontSize(AppFontSize.caption).fontColor(AppColors.primary)
     }.width('100%').height(32).onClick(() => action())
   }
 
   build() {
     Scroll() {
-      Column({ space: 16 }) {
+      Column({ space: AppSpacing.md }) {
         Row() {
-          Image(this.avatarUri.length > 0 ? this.avatarUri : $r('app.media.avatar_sparrow'))
-            .width(42)
-            .height(42)
-            .objectFit(ImageFit.Cover)
-            .borderRadius(21)
-            .onClick(() => this.onOpenProfile())
-          Blank()
+          Column({ space: 2 }) {
+            Text('Birdfolio').fontFamily(APP_SERIF).fontSize(AppFontSize.pageTitle).fontWeight(FontWeight.Medium).fontColor(AppColors.text)
+            Text('记录每一次有翅膀的相遇').fontSize(AppFontSize.caption).fontColor(AppColors.textSecondary)
+          }.alignItems(HorizontalAlign.Start).layoutWeight(1)
+          Image(this.avatarUri.length > 0 ? this.avatarUri : $r('app.media.avatar_sparrow')).width(AppSize.touchTarget).height(AppSize.touchTarget).objectFit(ImageFit.Cover).borderRadius(22).onClick(() => this.onOpenProfile())
         }.width('100%')
 
-        Row({ space: 12 }) {
-          Text('候').fontSize(12).fontWeight(FontWeight.Bold).fontColor(BLUE).width(34).height(34).textAlign(TextAlign.Center).backgroundColor(WHITE).borderRadius(17)
+        Column({ space: AppSpacing.md }) {
+          Stack({ alignContent: Alignment.BottomStart }) {
+            Image($r('app.media.home_egret')).width('100%').height(184).objectFit(ImageFit.Cover).borderRadius(AppRadius.image)
+            Column({ space: 3 }) {
+              Text('AI 识鸟').fontFamily(APP_SERIF).fontSize(AppFontSize.metric).fontWeight(FontWeight.Medium).fontColor(AppColors.surface)
+              Text('拍下或选择照片，获得可解释的候选结果').fontSize(AppFontSize.caption).fontColor(AppColors.surface)
+            }.padding(AppSpacing.md).width('100%').alignItems(HorizontalAlign.Start).backgroundColor(AppColors.overlay)
+          }.borderRadius(AppRadius.card)
+          AppButton({ label: '拍照识鸟', icon: $r('app.media.ic_camera'), onPress: () => this.onIdentify() })
+          AppButton({ label: '从相册识别', variant: 'secondary', icon: $r('app.media.ic_gallery'), onPress: () => this.onIdentify() })
+          AppButton({ label: '手动记录一次观察', variant: 'text', onPress: () => this.onNewObservation() })
+        }.padding(AppSpacing.sm).backgroundColor(AppColors.surface).border({ width: 1, color: AppColors.border }).borderRadius(AppRadius.card)
+
+        Row({ space: AppSpacing.sm }) {
+          Image($r('app.media.ic_mic')).width(AppSize.icon).height(AppSize.icon)
           Column({ space: 2 }) {
-            Text('迁徙提醒 · 规划中').fontSize(14).fontWeight(FontWeight.Medium).fontColor(INK)
-            Text('实时迁徙数据接入后开放').fontSize(12).fontColor(MUTED)
+            Text('听音识鸟').fontSize(AppFontSize.body).fontWeight(FontWeight.Medium).fontColor(AppColors.text)
+            Text('规划中').fontSize(AppFontSize.label).fontColor(AppColors.textSecondary)
           }.alignItems(HorizontalAlign.Start).layoutWeight(1)
-          Text('›').fontColor(BLUE)
-        }.padding(12).width('100%').backgroundColor(BLUE_SOFT).borderRadius(8).onClick(() => this.onOpenMigration())
+          Text('›').fontColor(AppColors.info)
+        }.padding(AppSpacing.sm).backgroundColor(AppColors.infoSoft).borderRadius(AppRadius.card).onClick(() => this.onOpenAudio())
 
-        Column({ space: 0 }) {
-          Image($r('app.media.home_egret')).width('100%').height(205).objectFit(ImageFit.Cover).borderRadius({ topLeft: 8, topRight: 8 })
-          Column({ space: 5 }) {
-            Text('今天，去遇见一只鸟').fontFamily(SERIF).fontSize(24).fontWeight(FontWeight.Medium).fontColor(INK).width('100%')
-            Text('记录你看到、听到的自然，也记录相遇时的自己。').fontSize(13).fontColor(MUTED).lineHeight(19).width('100%')
-          }.padding(16).alignItems(HorizontalAlign.Start)
-        }.backgroundColor(WHITE).border({ width: 1, color: BORDER }).borderRadius(8)
-
-        Row({ space: 9 }) {
-          Image($r('app.media.ic_camera')).width(22).height(22)
-          Text('拍照识鸟').fontSize(16).fontWeight(FontWeight.Medium).fontColor(WHITE)
-        }.justifyContent(FlexAlign.Center).width('100%').height(50).backgroundColor(GREEN).borderRadius(8).onClick(() => this.onIdentify())
-
-        Row({ space: 10 }) {
-          this.Action($r('app.media.ic_gallery'), '从相册识别', () => this.onIdentify())
-          this.Action($r('app.media.ic_mic'), '听音识鸟', () => this.onOpenAudio())
+        this.SectionLink('最近观察', this.recentRecords.length > 0 ? '查看全部  ›' : '', () => this.onOpenObservations())
+        if (this.loading) {
+          AppStateView({ type: 'loading', title: '正在读取观察', message: '本地记录加载中，请稍候。', onAction: () => {} })
+        } else if (this.loadError.length > 0) {
+          AppStateView({ type: 'error', title: '读取记录失败', message: this.loadError, actionLabel: '重新读取', onAction: () => this.onRetry() })
+        } else if (this.recentRecords.length === 0) {
+          AppStateView({ type: 'empty', title: '还没有观察记录', message: '手动记录，或先用照片识别一只鸟。', actionLabel: '手动记录', onAction: () => this.onNewObservation() })
+        } else {
+          ForEach(this.recentRecords, (item: Observation, index: number) => {
+            ObservationCard({ item: item, birdName: this.recentBirdNames[index] || '未知鸟种', image: this.recentBirdImages[index] || $r('app.media.background'), onSelect: () => this.onSelectObservation(item.id) })
+          }, (item: Observation) => item.id)
         }
-        Text('＋  没有照片？手动记录一次观察').fontSize(13).fontColor(GREEN).height(38).onClick(() => this.onNewObservation())
-        this.SectionLink('最近观察', '查看全部  ›', () => this.onOpenObservations())
-        ForEach(this.recentRecords, (item: Observation, index: number) => {
-          ObservationCard({
-            item: item,
-            birdName: this.recentBirdNames[index] || '未知鸟种',
-            image: this.recentBirdImages[index] || $r('app.media.background'),
-            onSelect: () => this.onSelectObservation(item.id)
-          })
-        }, (item: Observation) => item.id)
-      }.padding({ left: 16, right: 16, top: 16, bottom: 28 }).width('100%')
-    }.layoutWeight(1).scrollBar(BarState.Off)
+        if (this.offline) {
+          Text('当前离线，本地观察仍可查看和编辑。').fontSize(AppFontSize.caption).fontColor(AppColors.warning).padding(AppSpacing.sm).width('100%').backgroundColor(AppColors.warningSoft).borderRadius(AppRadius.card)
+        }
+      }.padding({ left: AppSpacing.md, right: AppSpacing.md, top: AppSpacing.md, bottom: 28 }).width('100%')
+    }.layoutWeight(1).scrollBar(BarState.Off).backgroundColor(AppColors.page)
   }
 }

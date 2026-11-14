@@ -1,5 +1,6 @@
 import { Observation } from '../../models/BirdModels';
 import { ObservationDetailView } from '../ObservationDetailView';
+import { AppStateView } from '../common/AppStateView';
 
 const BG = '#F9FAF7';
 const INK = '#1C241F';
@@ -20,11 +21,9 @@ export struct ObservationDetailPage {
 
   build() {
     if (this.record === undefined) {
-      Column({ space: 12 }) {
-        Text('找不到这条观察记录').fontFamily('serif').fontSize(20).fontColor(INK)
-        Text('记录可能已被删除或尚未同步。').fontSize(13).fontColor(MUTED)
-        Button('返回观察列表').height(46).fontColor(GREEN).backgroundColor(GREEN_SOFT).borderRadius(8).onClick(() => this.onBack())
-      }.justifyContent(FlexAlign.Center).layoutWeight(1).width('100%').backgroundColor(BG)
+      Column() {
+        AppStateView({ type: 'error', title: '找不到这条观察记录', message: '记录可能已被删除，或尚未从其他设备同步。', actionLabel: '返回观察列表', onAction: () => this.onBack() })
+      }.justifyContent(FlexAlign.Center).padding(20).layoutWeight(1).width('100%').backgroundColor(BG)
     } else {
       ObservationDetailView({ record: this.record!, birdName: this.birdName, scientificName: this.scientificName, image: this.image, onBack: () => this.onBack(), onEdit: () => this.onEdit(), onDelete: () => this.onDelete(), onCreateJournal: () => this.onCreateJournal() })
     }
